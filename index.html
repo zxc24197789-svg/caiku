@@ -1,6 +1,3 @@
-Index · HTML
-Copy
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -27,30 +24,30 @@ Copy
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect } = React;
- 
+
     const STORAGE_KEY = "finance_tracker_v1";
- 
+
     const defaultAccounts = [
       { id: "daily", name: "日常生活", icon: "🛒", color: "#4ade80", balance: 0 },
       { id: "travel", name: "出國基金", icon: "✈️", color: "#60a5fa", balance: 0 },
       { id: "future", name: "未來備用金", icon: "💰", color: "#f59e0b", balance: 0 },
     ];
- 
+
     const categories = ["餐飲", "交通", "購物", "娛樂", "醫療", "刷卡", "其他"];
- 
+
     function generateId() {
       return Math.random().toString(36).substr(2, 9);
     }
- 
+
     function getMonthKey(date) {
       const d = new Date(date);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     }
- 
+
     function formatCurrency(n) {
       return "NT$" + Number(n || 0).toLocaleString("zh-TW");
     }
- 
+
     function FinanceTracker() {
       const [data, setData] = useState(() => {
         try {
@@ -59,35 +56,38 @@ Copy
         } catch {}
         return { accounts: defaultAccounts, transactions: [], fixedExpenses: [], creditLimit: 15000, creditCategory: "刷卡" };
       });
- 
+
       const [tab, setTab] = useState("overview");
       const [modal, setModal] = useState(null);
       const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
       const [form, setForm] = useState({});
       const [editFixed, setEditFixed] = useState(null);
       const [editAccount, setEditAccount] = useState(null);
- 
+      
+      // 👇 新增：用來記錄目前點擊展開的帳戶 ID
+      const [expandedAccount, setExpandedAccount] = useState(null); 
+
       useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
       }, [data]);
- 
+
       const save = (updates) => setData((d) => ({ ...d, ...updates }));
- 
+
       const monthTxs = data.transactions.filter((t) => getMonthKey(t.date) === selectedMonth);
       const totalIncome = monthTxs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
       const totalExpense = monthTxs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
       const totalFixed = data.fixedExpenses.filter((f) => f.active).reduce((s, f) => s + f.amount, 0);
       const netBalance = totalIncome - totalExpense - totalFixed;
- 
+
       const creditLimit = data.creditLimit || 15000;
       const creditUsed = monthTxs.filter((t) => t.type === "expense" && t.category === "刷卡").reduce((s, t) => s + t.amount, 0);
       const creditPct = Math.min((creditUsed / creditLimit) * 100, 100);
       const creditRemain = creditLimit - creditUsed;
- 
+
       const getAccountBalance = (accId) =>
         data.transactions.filter((t) => t.accountId === accId)
           .reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
- 
+
       const exportCSV = (mode) => {
         let csvContent = "";
         if (mode === "transactions") {
@@ -121,16 +121,16 @@ Copy
         a.click();
         URL.revokeObjectURL(url);
       };
- 
+
       const addTransaction = () => {
         if (!form.amount || !form.accountId || !form.type) return;
         const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] };
         save({ transactions: [...data.transactions, tx] });
         setModal(null); setForm({});
       };
- 
+
       const deleteTransaction = (id) => save({ transactions: data.transactions.filter((t) => t.id !== id) });
- 
+
       const addFixedExpense = () => {
         if (!form.name || !form.amount) return;
         if (editFixed) {
@@ -141,10 +141,10 @@ Copy
         }
         setModal(null); setForm({});
       };
- 
+
       const toggleFixed = (id) => save({ fixedExpenses: data.fixedExpenses.map((f) => f.id === id ? { ...f, active: !f.active } : f) });
       const deleteFixed = (id) => save({ fixedExpenses: data.fixedExpenses.filter((f) => f.id !== id) });
- 
+
       const addAccount = () => {
         if (!form.name) return;
         if (editAccount) {
@@ -155,20 +155,20 @@ Copy
         }
         setModal(null); setForm({});
       };
- 
+
       const deleteAccount = (id) => save({ accounts: data.accounts.filter((a) => a.id !== id), transactions: data.transactions.filter((t) => t.accountId !== id) });
- 
+
       const allMonths = [...new Set(data.transactions.map((t) => getMonthKey(t.date)))];
       if (!allMonths.includes(selectedMonth)) allMonths.push(selectedMonth);
       allMonths.sort().reverse();
- 
+
       const iconOptions = ["🛒", "✈️", "💰", "🏠", "🎓", "💊", "🎮", "📦", "💼", "🌟"];
- 
+
       const S = {
         fontFamily: "'Noto Sans TC', 'Hiragino Sans', sans-serif",
         background: "#0f0f14", minHeight: "100vh", color: "#e8e6f0",
       };
- 
+
       return (
         <div style={S}>
           <style>{`
@@ -213,7 +213,7 @@ Copy
             .fab { animation: fabPulse 2.5s ease-in-out infinite; transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1) !important; }
             .fab:active { transform: scale(0.88) !important; }
           `}</style>
- 
+
           {/* Header */}
           <div style={{ background: "#13131e", borderBottom: "1px solid #2a2a3e", padding: "16px 20px", position: "sticky", top: 0, zIndex: 10 }}>
             <div style={{ maxWidth: 600, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -229,9 +229,9 @@ Copy
               </div>
             </div>
           </div>
- 
+
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 100px" }}>
- 
+
             {/* Summary */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "16px 0" }}>
               <div className="card fade-in" style={{ padding: 16 }}>
@@ -244,7 +244,7 @@ Copy
                 <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>含固定 {formatCurrency(totalFixed)}</div>
               </div>
             </div>
- 
+
             <div className="card fade-in" style={{ padding: 16, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>月底結餘</div>
@@ -258,7 +258,7 @@ Copy
                 <div style={{ fontSize: 18, fontWeight: 600, color: "#f59e0b" }}>{formatCurrency(totalFixed)}/月</div>
               </div>
             </div>
- 
+
             {/* Credit Card Limit */}
             <div className="card fade-in" style={{ padding: 16, marginBottom: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -286,40 +286,96 @@ Copy
               </div>
               <button className="btn-ghost" style={{ width: "100%", marginTop: 10, fontSize: 11 }} onClick={() => { setForm({ creditLimit: creditLimit }); setModal("creditLimit"); }}>調整上限</button>
             </div>
- 
+
             {/* Tabs */}
             <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#13131e", borderRadius: 24, padding: 4 }}>
               {[["overview","帳戶"],["transactions","收支"],["fixed","固定支出"],["accounts","管理帳戶"]].map(([key, label]) => (
                 <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
               ))}
             </div>
- 
-            {/* Overview */}
+
+            {/* Overview (已加入點擊展開明細功能) */}
             {tab === "overview" && (
               <div className="fade-in">
                 {data.accounts.map((acc) => {
                   const bal = getAccountBalance(acc.id);
+                  const accTxs = data.transactions
+                    .filter((t) => t.accountId === acc.id)
+                    .sort((a, b) => new Date(b.date) - new Date(a.date));
+                  const isExpanded = expandedAccount === acc.id;
+
                   return (
-                    <div key={acc.id} className="card" style={{ padding: 16, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div style={{ width: 44, height: 44, borderRadius: 12, background: acc.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, border: `1px solid ${acc.color}44` }}>
-                          {acc.icon}
+                    <div key={acc.id} style={{ marginBottom: 10 }}>
+                      <div 
+                        className="card" 
+                        style={{ 
+                          padding: 16, 
+                          display: "flex", 
+                          alignItems: "center", 
+                          justifyContent: "space-between",
+                          cursor: "pointer",
+                          borderBottomLeftRadius: isExpanded ? 0 : 16,
+                          borderBottomRightRadius: isExpanded ? 0 : 16,
+                          borderBottom: isExpanded ? "none" : "1px solid #2a2a3e"
+                        }}
+                        onClick={() => setExpandedAccount(isExpanded ? null : acc.id)}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{ width: 44, height: 44, borderRadius: 12, background: acc.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, border: `1px solid ${acc.color}44` }}>
+                            {acc.icon}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{acc.name}</div>
+                            <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{accTxs.length} 筆累計記錄</div>
+                          </div>
                         </div>
-                        <div>
-                          <div style={{ fontWeight: 500 }}>{acc.name}</div>
-                          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{data.transactions.filter((t) => t.accountId === acc.id && getMonthKey(t.date) === selectedMonth).length} 筆記錄</div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontWeight: 700, fontSize: 18, color: bal >= 0 ? acc.color : "#f87171" }}>{bal >= 0 ? "" : "-"}{formatCurrency(Math.abs(bal))}</div>
+                          <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>累計餘額 {isExpanded ? "▲" : "▼"}</div>
                         </div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 700, fontSize: 18, color: bal >= 0 ? acc.color : "#f87171" }}>{bal >= 0 ? "" : "-"}{formatCurrency(Math.abs(bal))}</div>
-                        <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>累計餘額</div>
-                      </div>
+
+                      {isExpanded && (
+                        <div 
+                          className="fade-in" 
+                          style={{ 
+                            background: "#13131e", 
+                            border: "1px solid #2a2a3e", 
+                            borderTop: "none", 
+                            borderRadius: "0 0 16px 16px", 
+                            padding: "8px 16px",
+                            maxHeight: "250px",
+                            overflowY: "auto"
+                          }}
+                        >
+                          {accTxs.length === 0 ? (
+                            <div style={{ fontSize: 12, color: "#555", textAlign: "center", padding: "16px 0" }}>暫無交易記錄</div>
+                          ) : (
+                            accTxs.map((tx) => (
+                              <div key={tx.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a26" }}>
+                                <div>
+                                  <div style={{ fontSize: 13, color: "#e8e6f0", display: "flex", alignItems: "center", gap: 6 }}>
+                                    {tx.note || tx.category}
+                                    <span className="pill" style={{ fontSize: 10, padding: "2px 6px", background: tx.type === "income" ? "#4ade8011" : "#f8717111", color: tx.type === "income" ? "#4ade80" : "#f87171" }}>
+                                      {tx.category}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>{tx.date}</div>
+                                </div>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: tx.type === "income" ? "#4ade80" : "#f87171" }}>
+                                  {tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             )}
- 
+
             {/* Transactions */}
             {tab === "transactions" && (
               <div className="fade-in">
@@ -351,7 +407,7 @@ Copy
                 )}
               </div>
             )}
- 
+
             {/* Fixed Expenses */}
             {tab === "fixed" && (
               <div className="fade-in">
@@ -379,7 +435,7 @@ Copy
                 )}
               </div>
             )}
- 
+
             {/* Accounts */}
             {tab === "accounts" && (
               <div className="fade-in">
@@ -400,13 +456,13 @@ Copy
               </div>
             )}
           </div>
- 
+
           {/* FAB */}
           <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 20 }}>
             <button className="btn-primary fab" style={{ borderRadius: 50, width: 56, height: 56, fontSize: 24, padding: 0, boxShadow: "0 4px 24px #7c6fcd55" }}
               onClick={() => { setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+</button>
           </div>
- 
+
           {/* Modal: Add Transaction */}
           {modal === "addTx" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
@@ -440,7 +496,7 @@ Copy
               </div>
             </div>
           )}
- 
+
           {/* Modal: Fixed Expense */}
           {modal === "addFixed" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
@@ -458,7 +514,7 @@ Copy
               </div>
             </div>
           )}
- 
+
           {/* Modal: Account */}
           {modal === "addAccount" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
@@ -492,7 +548,7 @@ Copy
               </div>
             </div>
           )}
- 
+
           {/* Modal: Credit Limit */}
           {modal === "creditLimit" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
@@ -507,7 +563,7 @@ Copy
               </div>
             </div>
           )}
- 
+
           {/* Modal: Export */}
           {modal === "export" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
@@ -528,6 +584,12 @@ Copy
           )}
         </div>
       );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<FinanceTracker />);
+  </script>
+</body>
+</html>
     }
  
     ReactDOM.createRoot(document.getElementById("root")).render(<FinanceTracker />);
