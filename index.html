@@ -1,0 +1,537 @@
+Index · HTML
+Copy
+
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="財庫" />
+  <meta name="theme-color" content="#0f0f14" />
+  <title>財庫 — 個人記帳</title>
+  <link rel="apple-touch-icon" href="https://fav.farm/💰" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f0f14; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: #1a1a24; }
+    ::-webkit-scrollbar-thumb { background: #3a3a50; border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+ 
+    const STORAGE_KEY = "finance_tracker_v1";
+ 
+    const defaultAccounts = [
+      { id: "daily", name: "日常生活", icon: "🛒", color: "#4ade80", balance: 0 },
+      { id: "travel", name: "出國基金", icon: "✈️", color: "#60a5fa", balance: 0 },
+      { id: "future", name: "未來備用金", icon: "💰", color: "#f59e0b", balance: 0 },
+    ];
+ 
+    const categories = ["餐飲", "交通", "購物", "娛樂", "醫療", "刷卡", "其他"];
+ 
+    function generateId() {
+      return Math.random().toString(36).substr(2, 9);
+    }
+ 
+    function getMonthKey(date) {
+      const d = new Date(date);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    }
+ 
+    function formatCurrency(n) {
+      return "NT$" + Number(n || 0).toLocaleString("zh-TW");
+    }
+ 
+    function FinanceTracker() {
+      const [data, setData] = useState(() => {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) return JSON.parse(saved);
+        } catch {}
+        return { accounts: defaultAccounts, transactions: [], fixedExpenses: [], creditLimit: 15000, creditCategory: "刷卡" };
+      });
+ 
+      const [tab, setTab] = useState("overview");
+      const [modal, setModal] = useState(null);
+      const [selectedMonth, setSelectedMonth] = useState(getMonthKey(new Date()));
+      const [form, setForm] = useState({});
+      const [editFixed, setEditFixed] = useState(null);
+      const [editAccount, setEditAccount] = useState(null);
+ 
+      useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      }, [data]);
+ 
+      const save = (updates) => setData((d) => ({ ...d, ...updates }));
+ 
+      const monthTxs = data.transactions.filter((t) => getMonthKey(t.date) === selectedMonth);
+      const totalIncome = monthTxs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+      const totalExpense = monthTxs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+      const totalFixed = data.fixedExpenses.filter((f) => f.active).reduce((s, f) => s + f.amount, 0);
+      const netBalance = totalIncome - totalExpense - totalFixed;
+ 
+      const creditLimit = data.creditLimit || 15000;
+      const creditUsed = monthTxs.filter((t) => t.type === "expense" && t.category === "刷卡").reduce((s, t) => s + t.amount, 0);
+      const creditPct = Math.min((creditUsed / creditLimit) * 100, 100);
+      const creditRemain = creditLimit - creditUsed;
+ 
+      const getAccountBalance = (accId) =>
+        data.transactions.filter((t) => t.accountId === accId)
+          .reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
+ 
+      const exportCSV = (mode) => {
+        let csvContent = "";
+        if (mode === "transactions") {
+          const rows = [["日期", "類型", "帳戶", "分類", "備注", "金額(NT$)"]];
+          [...data.transactions].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((tx) => {
+            const acc = data.accounts.find((a) => a.id === tx.accountId);
+            rows.push([tx.date, tx.type === "income" ? "收入" : "支出", acc?.name || "", tx.category, tx.note, tx.type === "income" ? tx.amount : -tx.amount]);
+          });
+          csvContent = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+        } else if (mode === "fixed") {
+          const rows = [["名稱", "每月金額(NT$)", "狀態", "備注"]];
+          data.fixedExpenses.forEach((fe) => rows.push([fe.name, fe.amount, fe.active ? "啟用" : "停用", fe.note || ""]));
+          csvContent = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+        } else if (mode === "summary") {
+          const months = [...new Set(data.transactions.map((t) => getMonthKey(t.date)))].sort();
+          const rows = [["月份", "收入(NT$)", "一般支出(NT$)", "固定支出(NT$)", "結餘(NT$)"]];
+          months.forEach((m) => {
+            const txs = data.transactions.filter((t) => getMonthKey(t.date) === m);
+            const inc = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+            const exp = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+            const fix = data.fixedExpenses.filter((f) => f.active).reduce((s, f) => s + f.amount, 0);
+            rows.push([m, inc, exp, fix, inc - exp - fix]);
+          });
+          csvContent = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+        }
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `財庫_${mode}_${new Date().toISOString().split("T")[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+ 
+      const addTransaction = () => {
+        if (!form.amount || !form.accountId || !form.type) return;
+        const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] };
+        save({ transactions: [...data.transactions, tx] });
+        setModal(null); setForm({});
+      };
+ 
+      const deleteTransaction = (id) => save({ transactions: data.transactions.filter((t) => t.id !== id) });
+ 
+      const addFixedExpense = () => {
+        if (!form.name || !form.amount) return;
+        if (editFixed) {
+          save({ fixedExpenses: data.fixedExpenses.map((f) => f.id === editFixed.id ? { ...f, name: form.name, amount: parseFloat(form.amount), note: form.note || "" } : f) });
+          setEditFixed(null);
+        } else {
+          save({ fixedExpenses: [...data.fixedExpenses, { id: generateId(), name: form.name, amount: parseFloat(form.amount), note: form.note || "", active: true }] });
+        }
+        setModal(null); setForm({});
+      };
+ 
+      const toggleFixed = (id) => save({ fixedExpenses: data.fixedExpenses.map((f) => f.id === id ? { ...f, active: !f.active } : f) });
+      const deleteFixed = (id) => save({ fixedExpenses: data.fixedExpenses.filter((f) => f.id !== id) });
+ 
+      const addAccount = () => {
+        if (!form.name) return;
+        if (editAccount) {
+          save({ accounts: data.accounts.map((a) => a.id === editAccount.id ? { ...a, name: form.name, icon: form.icon || a.icon, color: form.color || a.color } : a) });
+          setEditAccount(null);
+        } else {
+          save({ accounts: [...data.accounts, { id: generateId(), name: form.name, icon: form.icon || "💼", color: form.color || "#a78bfa", balance: 0 }] });
+        }
+        setModal(null); setForm({});
+      };
+ 
+      const deleteAccount = (id) => save({ accounts: data.accounts.filter((a) => a.id !== id), transactions: data.transactions.filter((t) => t.accountId !== id) });
+ 
+      const allMonths = [...new Set(data.transactions.map((t) => getMonthKey(t.date)))];
+      if (!allMonths.includes(selectedMonth)) allMonths.push(selectedMonth);
+      allMonths.sort().reverse();
+ 
+      const iconOptions = ["🛒", "✈️", "💰", "🏠", "🎓", "💊", "🎮", "📦", "💼", "🌟"];
+ 
+      const S = {
+        fontFamily: "'Noto Sans TC', 'Hiragino Sans', sans-serif",
+        background: "#0f0f14", minHeight: "100vh", color: "#e8e6f0",
+      };
+ 
+      return (
+        <div style={S}>
+          <style>{`
+            @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+            .tab-btn { background: none; border: none; cursor: pointer; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-family: inherit; transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1); color: #888; flex: 1; }
+            .tab-btn.active { background: #1e1e2e; color: #e8e6f0; transform: scale(1.04); }
+            .tab-btn:active { transform: scale(0.95); }
+            .card { background: #1a1a26; border-radius: 16px; border: 1px solid #2a2a3e; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+            .card:active { transform: scale(0.98); }
+            .btn-primary { background: #7c6fcd; color: white; border: none; border-radius: 10px; padding: 10px 20px; cursor: pointer; font-family: inherit; font-size: 14px; font-weight: 500; transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1); }
+            .btn-primary:hover { background: #9180e8; transform: translateY(-2px); box-shadow: 0 6px 20px #7c6fcd44; }
+            .btn-primary:active { transform: scale(0.95) translateY(0); }
+            .btn-ghost { background: none; border: 1px solid #3a3a50; color: #aaa; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-family: inherit; font-size: 12px; transition: all 0.2s ease; }
+            .btn-ghost:hover { border-color: #7c6fcd; color: #e8e6f0; background: #7c6fcd11; }
+            .btn-ghost:active { transform: scale(0.95); }
+            .input-field { background: #0f0f18; border: 1px solid #3a3a50; color: #e8e6f0; border-radius: 8px; padding: 10px 12px; font-family: inherit; font-size: 14px; width: 100%; outline: none; transition: border 0.2s, box-shadow 0.2s; }
+            .input-field:focus { border-color: #7c6fcd; box-shadow: 0 0 0 3px #7c6fcd22; }
+            .input-field option { background: #1a1a26; }
+            .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0); display: flex; align-items: flex-end; justify-content: center; z-index: 100; padding: 0; animation: overlayIn 0.25s ease forwards; }
+            @keyframes overlayIn { to { background: rgba(0,0,0,0.7); } }
+            .modal { background: #1a1a26; border: 1px solid #3a3a50; border-radius: 24px 24px 0 0; padding: 28px 24px 40px; width: 100%; max-width: 480px; animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+            @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+            .tx-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #1e1e2e; transition: background 0.15s; }
+            .tx-row:last-child { border-bottom: none; }
+            .tx-row:active { background: #ffffff08; border-radius: 8px; }
+            .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+            @keyframes fadeSlideIn { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform: translateY(0); } }
+            .fade-in { animation: fadeSlideIn 0.4s cubic-bezier(0.22,1,0.36,1); }
+            .fade-in > * { animation: fadeSlideIn 0.4s cubic-bezier(0.22,1,0.36,1); animation-fill-mode: both; }
+            .fade-in > *:nth-child(1) { animation-delay: 0.05s; }
+            .fade-in > *:nth-child(2) { animation-delay: 0.1s; }
+            .fade-in > *:nth-child(3) { animation-delay: 0.15s; }
+            .fade-in > *:nth-child(4) { animation-delay: 0.2s; }
+            .fade-in > *:nth-child(5) { animation-delay: 0.25s; }
+            .toggle { position: relative; display: inline-block; width: 36px; height: 20px; }
+            .toggle input { opacity: 0; width: 0; height: 0; }
+            .slider { position: absolute; cursor: pointer; inset: 0; background: #3a3a50; border-radius: 20px; transition: 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+            .slider:before { content: ''; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+            input:checked + .slider { background: #7c6fcd; }
+            input:checked + .slider:before { transform: translateX(16px); }
+            @keyframes fabPulse { 0%,100% { box-shadow: 0 4px 24px #7c6fcd55; } 50% { box-shadow: 0 4px 32px #7c6fcd99; } }
+            .fab { animation: fabPulse 2.5s ease-in-out infinite; transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1) !important; }
+            .fab:active { transform: scale(0.88) !important; }
+          `}</style>
+ 
+          {/* Header */}
+          <div style={{ background: "#13131e", borderBottom: "1px solid #2a2a3e", padding: "16px 20px", position: "sticky", top: 0, zIndex: 10 }}>
+            <div style={{ maxWidth: 600, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, letterSpacing: 0.5 }}>財庫</div>
+                <div style={{ fontSize: 11, color: "#666", marginTop: 1 }}>個人記帳系統</div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setModal("export")}>📤 匯出</button>
+                <select className="input-field" style={{ width: "auto", fontSize: 13, padding: "6px 10px" }} value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+                  {allMonths.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+ 
+          <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 100px" }}>
+ 
+            {/* Summary */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "16px 0" }}>
+              <div className="card fade-in" style={{ padding: 16 }}>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>本月收入</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#4ade80" }}>{formatCurrency(totalIncome)}</div>
+              </div>
+              <div className="card fade-in" style={{ padding: 16 }}>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 6 }}>本月支出</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#f87171" }}>{formatCurrency(totalExpense + totalFixed)}</div>
+                <div style={{ fontSize: 10, color: "#666", marginTop: 2 }}>含固定 {formatCurrency(totalFixed)}</div>
+              </div>
+            </div>
+ 
+            <div className="card fade-in" style={{ padding: 16, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>月底結餘</div>
+                <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "'DM Serif Display', serif", color: netBalance >= 0 ? "#4ade80" : "#f87171" }}>
+                  {formatCurrency(Math.abs(netBalance))}
+                  <span style={{ fontSize: 14, fontFamily: "inherit", marginLeft: 4 }}>{netBalance >= 0 ? "▲" : "▼"}</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 4 }}>固定支出</div>
+                <div style={{ fontSize: 18, fontWeight: 600, color: "#f59e0b" }}>{formatCurrency(totalFixed)}/月</div>
+              </div>
+            </div>
+ 
+            {/* Credit Card Limit */}
+            <div className="card fade-in" style={{ padding: 16, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 18 }}>💳</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>本月刷卡</div>
+                    <div style={{ fontSize: 10, color: "#666", marginTop: 1 }}>上限 {formatCurrency(creditLimit)}</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: creditPct >= 90 ? "#f87171" : creditPct >= 70 ? "#f59e0b" : "#60a5fa" }}>{formatCurrency(creditUsed)}</div>
+                  <div style={{ fontSize: 10, color: "#666", marginTop: 1 }}>還剩 {formatCurrency(creditRemain)}</div>
+                </div>
+              </div>
+              <div style={{ background: "#0f0f18", borderRadius: 99, height: 8, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 99, width: `${creditPct}%`, background: creditPct >= 90 ? "#f87171" : creditPct >= 70 ? "#f59e0b" : "#60a5fa", transition: "width 0.4s ease" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                <div style={{ fontSize: 10, color: "#555" }}>NT$0</div>
+                <div style={{ fontSize: 10, color: creditPct >= 90 ? "#f87171" : "#555", fontWeight: creditPct >= 90 ? 600 : 400 }}>
+                  {creditPct >= 90 ? "⚠️ 快到上限！" : `${Math.round(creditPct)}% 已使用`}
+                </div>
+                <div style={{ fontSize: 10, color: "#555" }}>{formatCurrency(creditLimit)}</div>
+              </div>
+              <button className="btn-ghost" style={{ width: "100%", marginTop: 10, fontSize: 11 }} onClick={() => { setForm({ creditLimit: creditLimit }); setModal("creditLimit"); }}>調整上限</button>
+            </div>
+ 
+            {/* Tabs */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#13131e", borderRadius: 24, padding: 4 }}>
+              {[["overview","帳戶"],["transactions","收支"],["fixed","固定支出"],["accounts","管理帳戶"]].map(([key, label]) => (
+                <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+              ))}
+            </div>
+ 
+            {/* Overview */}
+            {tab === "overview" && (
+              <div className="fade-in">
+                {data.accounts.map((acc) => {
+                  const bal = getAccountBalance(acc.id);
+                  return (
+                    <div key={acc.id} className="card" style={{ padding: 16, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: 12, background: acc.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, border: `1px solid ${acc.color}44` }}>
+                          {acc.icon}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{acc.name}</div>
+                          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{data.transactions.filter((t) => t.accountId === acc.id && getMonthKey(t.date) === selectedMonth).length} 筆記錄</div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 700, fontSize: 18, color: bal >= 0 ? acc.color : "#f87171" }}>{bal >= 0 ? "" : "-"}{formatCurrency(Math.abs(bal))}</div>
+                        <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>累計餘額</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+ 
+            {/* Transactions */}
+            {tab === "transactions" && (
+              <div className="fade-in">
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <button className="btn-primary" onClick={() => { setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+ 新增記錄</button>
+                </div>
+                {monthTxs.length === 0 ? (
+                  <div className="card" style={{ padding: 32, textAlign: "center", color: "#555" }}>本月暫無記錄</div>
+                ) : (
+                  <div className="card" style={{ padding: "4px 16px" }}>
+                    {[...monthTxs].sort((a, b) => new Date(b.date) - new Date(a.date)).map((tx) => {
+                      const acc = data.accounts.find((a) => a.id === tx.accountId);
+                      return (
+                        <div key={tx.id} className="tx-row">
+                          <div style={{ width: 36, height: 36, borderRadius: 10, background: (acc?.color || "#888") + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{acc?.icon || "💼"}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                              {tx.note || tx.category}
+                              <span className="pill" style={{ background: tx.type === "income" ? "#4ade8022" : "#f8717122", color: tx.type === "income" ? "#4ade80" : "#f87171" }}>{tx.type === "income" ? "收" : "支"}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{tx.date} · {acc?.name} · {tx.category}</div>
+                          </div>
+                          <div style={{ fontWeight: 700, color: tx.type === "income" ? "#4ade80" : "#f87171", flexShrink: 0 }}>{tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}</div>
+                          <button onClick={() => deleteTransaction(tx.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+ 
+            {/* Fixed Expenses */}
+            {tab === "fixed" && (
+              <div className="fade-in">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontSize: 13, color: "#888" }}>合計：<span style={{ color: "#f59e0b", fontWeight: 600 }}>{formatCurrency(totalFixed)}</span></div>
+                  <button className="btn-primary" onClick={() => { setForm({}); setEditFixed(null); setModal("addFixed"); }}>+ 新增</button>
+                </div>
+                {data.fixedExpenses.length === 0 ? (
+                  <div className="card" style={{ padding: 32, textAlign: "center", color: "#555" }}>尚未設定固定支出</div>
+                ) : (
+                  <div className="card" style={{ padding: "4px 16px" }}>
+                    {data.fixedExpenses.map((fe) => (
+                      <div key={fe.id} className="tx-row">
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 500, color: fe.active ? "#e8e6f0" : "#555" }}>{fe.name}</div>
+                          {fe.note && <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>{fe.note}</div>}
+                        </div>
+                        <div style={{ fontWeight: 700, color: fe.active ? "#f59e0b" : "#555", marginRight: 10 }}>{formatCurrency(fe.amount)}</div>
+                        <label className="toggle"><input type="checkbox" checked={fe.active} onChange={() => toggleFixed(fe.id)} /><span className="slider"></span></label>
+                        <button onClick={() => { setEditFixed(fe); setForm({ name: fe.name, amount: fe.amount, note: fe.note }); setModal("addFixed"); }} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 14, padding: "0 4px" }}>✎</button>
+                        <button onClick={() => deleteFixed(fe.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+ 
+            {/* Accounts */}
+            {tab === "accounts" && (
+              <div className="fade-in">
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                  <button className="btn-primary" onClick={() => { setForm({ icon: "💼", color: "#a78bfa" }); setEditAccount(null); setModal("addAccount"); }}>+ 新增帳戶</button>
+                </div>
+                {data.accounts.map((acc) => (
+                  <div key={acc.id} className="card" style={{ padding: 14, marginBottom: 10, display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, background: acc.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, border: `1px solid ${acc.color}44`, flexShrink: 0 }}>{acc.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 500 }}>{acc.name}</div>
+                      <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{data.transactions.filter((t) => t.accountId === acc.id).length} 筆交易</div>
+                    </div>
+                    <button className="btn-ghost" onClick={() => { setEditAccount(acc); setForm({ name: acc.name, icon: acc.icon, color: acc.color }); setModal("addAccount"); }}>改名</button>
+                    <button className="btn-ghost" onClick={() => deleteAccount(acc.id)} style={{ color: "#f87171", borderColor: "#f8717144" }}>刪除</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+ 
+          {/* FAB */}
+          <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 20 }}>
+            <button className="btn-primary fab" style={{ borderRadius: 50, width: 56, height: 56, fontSize: 24, padding: 0, boxShadow: "0 4px 24px #7c6fcd55" }}
+              onClick={() => { setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+</button>
+          </div>
+ 
+          {/* Modal: Add Transaction */}
+          {modal === "addTx" && (
+            <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
+              <div className="modal fade-in">
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>新增記錄</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                  {["expense","income"].map((t) => (
+                    <button key={t} onClick={() => setForm((f) => ({ ...f, type: t }))}
+                      style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 500, background: form.type === t ? (t === "income" ? "#4ade8033" : "#f8717133") : "#0f0f18", color: form.type === t ? (t === "income" ? "#4ade80" : "#f87171") : "#888", transition: "all 0.2s" }}>
+                      {t === "expense" ? "支出" : "收入"}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <input className="input-field" type="number" placeholder="金額 NT$" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
+                  <select className="input-field" value={form.accountId || ""} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
+                    <option value="">選擇帳戶</option>
+                    {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.icon} {a.name}</option>)}
+                  </select>
+                  <select className="input-field" value={form.category || ""} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+                    <option value="">分類</option>
+                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <input className="input-field" type="text" placeholder="備注（選填）" value={form.note || ""} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+                  <input className="input-field" type="date" value={form.date || ""} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setModal(null)}>取消</button>
+                  <button className="btn-primary" style={{ flex: 2 }} onClick={addTransaction}>確認新增</button>
+                </div>
+              </div>
+            </div>
+          )}
+ 
+          {/* Modal: Fixed Expense */}
+          {modal === "addFixed" && (
+            <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
+              <div className="modal fade-in">
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>{editFixed ? "編輯" : "新增"}固定支出</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <input className="input-field" type="text" placeholder="名稱（如：租金、Netflix）" value={form.name || ""} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                  <input className="input-field" type="number" placeholder="每月金額 NT$" value={form.amount || ""} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} />
+                  <input className="input-field" type="text" placeholder="備注（選填）" value={form.note || ""} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { setModal(null); setEditFixed(null); }}>取消</button>
+                  <button className="btn-primary" style={{ flex: 2 }} onClick={addFixedExpense}>{editFixed ? "儲存" : "確認新增"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+ 
+          {/* Modal: Account */}
+          {modal === "addAccount" && (
+            <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
+              <div className="modal fade-in">
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>{editAccount ? "編輯帳戶" : "新增帳戶"}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <input className="input-field" type="text" placeholder="帳戶名稱" value={form.name || ""} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                  <div>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>選擇圖示</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {iconOptions.map((ic) => (
+                        <button key={ic} onClick={() => setForm((f) => ({ ...f, icon: ic }))}
+                          style={{ width: 36, height: 36, borderRadius: 8, border: form.icon === ic ? "2px solid #7c6fcd" : "1px solid #3a3a50", background: form.icon === ic ? "#7c6fcd22" : "#0f0f18", cursor: "pointer", fontSize: 18 }}>{ic}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>顏色</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {["#4ade80","#60a5fa","#f59e0b","#f87171","#a78bfa","#34d399"].map((c) => (
+                        <button key={c} onClick={() => setForm((f) => ({ ...f, color: c }))}
+                          style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: form.color === c ? "3px solid white" : "3px solid transparent", cursor: "pointer" }} />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { setModal(null); setEditAccount(null); }}>取消</button>
+                  <button className="btn-primary" style={{ flex: 2 }} onClick={addAccount}>{editAccount ? "儲存" : "確認新增"}</button>
+                </div>
+              </div>
+            </div>
+          )}
+ 
+          {/* Modal: Credit Limit */}
+          {modal === "creditLimit" && (
+            <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
+              <div className="modal fade-in">
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>💳 調整刷卡上限</div>
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>記帳時分類選「刷卡」，系統自動計入本月刷卡金額</div>
+                <input className="input-field" type="number" placeholder="每月刷卡上限 NT$" value={form.creditLimit || ""} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value }))} />
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setModal(null)}>取消</button>
+                  <button className="btn-primary" style={{ flex: 2 }} onClick={() => { save({ creditLimit: parseFloat(form.creditLimit) || 15000 }); setModal(null); setForm({}); }}>儲存</button>
+                </div>
+              </div>
+            </div>
+          )}
+ 
+          {/* Modal: Export */}
+          {modal === "export" && (
+            <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
+              <div className="modal fade-in">
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>📤 匯出 CSV</div>
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 20 }}>匯出後用 Excel 直接開啟，記得選 UTF-8 編碼</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[["transactions","📋 所有收支記錄","日期、類型、帳戶、分類、金額"],["summary","📊 每月收支摘要","每月收入、支出、固定支出、結餘"],["fixed","🔁 固定支出清單","名稱、每月金額、狀態"]].map(([mode, title, desc]) => (
+                    <button key={mode} className="btn-ghost" style={{ padding: 14, textAlign: "left", borderRadius: 12 }} onClick={() => { exportCSV(mode); setModal(null); }}>
+                      <div style={{ fontWeight: 500, color: "#e8e6f0" }}>{title}</div>
+                      <div style={{ fontSize: 11, color: "#666", marginTop: 3 }}>{desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <button className="btn-ghost" style={{ width: "100%", marginTop: 14 }} onClick={() => setModal(null)}>取消</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+ 
+    ReactDOM.createRoot(document.getElementById("root")).render(<FinanceTracker />);
+  </script>
+</body>
+</html>
+ 
