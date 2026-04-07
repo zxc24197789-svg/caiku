@@ -24,7 +24,7 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo } = React;
 
-    const STORAGE_KEY = "finance_tracker_pro_v2"; // 更新 Key 避免與舊版衝突
+    const STORAGE_KEY = "finance_tracker_pro_v2"; 
     const CHART_COLORS = ["#ff453a", "#ff9f0a", "#ffd60a", "#30d158", "#66d4cf", "#0a84ff", "#5e5ce6", "#bf5af2", "#ff375f"];
 
     const expenseCategories = ["飲食", "交通", "購物", "娛樂", "居家", "醫療", "卡費", "進修", "其他"];
@@ -37,20 +37,17 @@
     function getYearKey(date) { return `${new Date(date).getFullYear()}`; }
 
     function FinanceTracker() {
-      // --- 資料狀態初始化與資料庫升級 ---
       const [data, setData] = useState(() => {
         try {
           const saved = localStorage.getItem(STORAGE_KEY);
           if (saved) {
             const parsed = JSON.parse(saved);
-            // 確保新結構存在
             if (!parsed.creditCards) parsed.creditCards = [];
             if (!parsed.settings) parsed.settings = { passcode: "", reminder: "" };
             return parsed;
           }
         } catch {}
         
-        // 預設資料
         return { 
           accounts: [
             { id: "daily", name: "日常生活", icon: "🛒", color: "#4ade80", balance: 0 },
@@ -63,7 +60,6 @@
         };
       });
 
-      // --- UI 狀態 ---
       const [tab, setTab] = useState("overview");
       const [modal, setModal] = useState(null);
       const [form, setForm] = useState({});
@@ -75,33 +71,25 @@
       const [expandedAccount, setExpandedAccount] = useState(null); 
       
       const [isMenuOpen, setIsMenuOpen] = useState(false);
-      
-      // 密碼解鎖狀態
       const [isUnlocked, setIsUnlocked] = useState(!data.settings.passcode);
       const [inputPin, setInputPin] = useState("");
 
-      // 報表篩選狀態
       const [timeFilter, setTimeFilter] = useState(getMonthKey(new Date()));
-      const [sourceFilter, setSourceFilter] = useState("all"); // 'all', 'cash', 'credit'
+      const [sourceFilter, setSourceFilter] = useState("all"); 
 
-      // 滑動偵測
       const touchStartX = useRef(null);
       const touchStartY = useRef(null);
       const touchEndX = useRef(null);
       const touchEndY = useRef(null);
 
-      // 自動存檔
       useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }, [data]);
       const save = (updates) => setData((d) => ({ ...d, ...updates }));
 
-      // --- 資料過濾與計算 ---
-      // 判斷交易紀錄是屬於現金還是信用卡
       const getTxSourceType = (accountId) => {
         if (data.creditCards.some(c => c.id === accountId)) return 'credit';
         return 'cash';
       };
 
-      // 產生日期選單選項
       const dateOptions = useMemo(() => {
         const dates = data.transactions.map(t => new Date(t.date));
         if (dates.length === 0) dates.push(new Date());
@@ -112,7 +100,6 @@
           quarters.add(getQuarterKey(d));
           years.add(getYearKey(d));
         });
-        // 確保當前月份存在
         months.add(getMonthKey(new Date()));
         
         return {
@@ -122,7 +109,6 @@
         };
       }, [data.transactions]);
 
-      // 根據選擇的時間過濾交易
       const filteredTxs = useMemo(() => {
         return data.transactions.filter(t => {
           if (timeFilter.includes('Q')) return getQuarterKey(t.date) === timeFilter;
@@ -131,7 +117,6 @@
         });
       }, [data.transactions, timeFilter]);
 
-      // 圖表使用的交易 (根據 sourceFilter 再過濾)
       const chartTxs = useMemo(() => {
         return filteredTxs.filter(t => {
           if (t.type !== 'expense') return false;
@@ -140,11 +125,9 @@
         });
       }, [filteredTxs, sourceFilter, data.creditCards]);
 
-      // 全局總結計算 (以 filteredTxs 為準)
       const totalIncome = filteredTxs.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
       const totalExpense = filteredTxs.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
       
-      // 固定支出 (只在選定「當月」或「全部」時算入，如果是季/年，直接算實際發生的比較合理，但為求簡化這邊按比例放大)
       let fixedMultiplier = 1;
       if (timeFilter.includes('Q')) fixedMultiplier = 3;
       if (timeFilter.length === 4) fixedMultiplier = 12;
@@ -152,15 +135,12 @@
       
       const netBalance = totalIncome - totalExpense - totalFixed;
 
-      // 帳戶累計餘額
       const getAccountBalance = (accId) => data.transactions.filter((t) => t.accountId === accId).reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
 
-      // --- 圖表資料產生 ---
       const chartData = useMemo(() => {
         const catSum = {};
         chartTxs.forEach(t => { catSum[t.category] = (catSum[t.category] || 0) + t.amount; });
         
-        // 固定支出預設算在現金 (如果看全部或現金時顯示)
         if (totalFixed > 0 && (sourceFilter === 'all' || sourceFilter === 'cash')) {
           catSum["固定支出"] = totalFixed;
         }
@@ -186,21 +166,54 @@
         return { list: sortedList, total: totalChartExpense, conicString };
       }, [chartTxs, totalFixed, sourceFilter]);
 
-      // --- 觸控事件 ---
-      const handleTouchStart = (e) => { touchStartX.current = e.targetTouches[0].clientX; touchStartY.current = e.targetTouches[0].clientY; };
-      const handleTouchMove = (e) => { touchEndX.current = e.targetTouches[0].clientX; touchEndY.current = e.targetTouches[0].clientY; };
+      // ★ 全新升級的觸控事件 (支援月份切換) ★
+      const handleTouchStart = (e) => { 
+        touchStartX.current = e.targetTouches[0].clientX; 
+        touchStartY.current = e.targetTouches[0].clientY; 
+      };
+      
+      const handleTouchMove = (e) => { 
+        touchEndX.current = e.targetTouches[0].clientX; 
+        touchEndY.current = e.targetTouches[0].clientY; 
+      };
+      
       const handleTouchEnd = () => {
         if (touchStartX.current === null || touchEndX.current === null) return;
         const distanceX = touchStartX.current - touchEndX.current;
         const distanceY = touchStartY.current - touchEndY.current;
+        
+        // 判斷是否為明確的水平滑動
         if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > 40) {
-          if (distanceX < 0 && touchStartX.current < 40) setIsMenuOpen(true);
-          else if (distanceX > 0 && isMenuOpen) setIsMenuOpen(false);
+          
+          if (distanceX < 0 && touchStartX.current < 40) {
+            // 1. 從最左側邊緣往右滑 -> 打開設定選單
+            setIsMenuOpen(true);
+          } else if (distanceX > 0 && isMenuOpen) {
+            // 2. 選單開啟時往左滑 -> 關閉設定選單
+            setIsMenuOpen(false);
+          } else if (!isMenuOpen && !modal && timeFilter.length === 7) {
+            // 3. 一般畫面中左右滑動 -> 切換月份 (僅限月份模式下)
+            const currentMonths = dateOptions.months;
+            const currentIndex = currentMonths.indexOf(timeFilter);
+            
+            if (currentIndex !== -1) {
+              if (distanceX > 0 && currentIndex < currentMonths.length - 1) {
+                // 左滑 (往舊的月份切換)
+                setTimeFilter(currentMonths[currentIndex + 1]);
+              } else if (distanceX < 0 && currentIndex > 0) {
+                // 右滑 (往新的月份切換)
+                setTimeFilter(currentMonths[currentIndex - 1]);
+              }
+            }
+          }
         }
-        touchStartX.current = null; touchStartY.current = null; touchEndX.current = null; touchEndY.current = null;
+        
+        touchStartX.current = null; 
+        touchStartY.current = null; 
+        touchEndX.current = null; 
+        touchEndY.current = null;
       };
 
-      // --- 功能函數 ---
       const exportCSV = () => {
         const rows = [["日期", "類型", "來源(帳戶/卡片)", "分類", "備注", "金額(NT$)"]];
         [...data.transactions].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((tx) => {
@@ -256,7 +269,6 @@
         else if(listName === 'fixed') save({ fixedExpenses: data.fixedExpenses.filter(f => f.id !== id) });
       };
 
-      // --- 密碼鎖定介面 ---
       if (!isUnlocked) {
         const handlePin = (n) => {
           const newPin = inputPin + n;
@@ -287,7 +299,6 @@
         );
       }
 
-      // 共用樣式
       const currentCategories = form.type === "income" ? incomeCategories : expenseCategories;
       const menuBtnStyle = { display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "16px 20px", background: "none", border: "none", color: "#e8e6f0", fontSize: 16, fontWeight: 600, cursor: "pointer", transition: "background 0.2s" };
       const groupTitleStyle = { fontSize: 13, color: "#888", fontWeight: 600, marginLeft: 16, marginBottom: 8, marginTop: 24, textTransform: "uppercase", letterSpacing: 1 };
@@ -316,8 +327,11 @@
             .modal { background: #1a1a26; border-top: 1px solid #3a3a50; border-radius: 32px 32px 0 0; padding: 32px 24px 44px; width: 100%; max-width: 480px; box-shadow: 0 -10px 40px rgba(0,0,0,0.5); animation: slideUp 0.45s cubic-bezier(0.32, 0.72, 0, 1); }
             @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
             .pill { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+            
+            /* 翻頁動畫 */
             .fade-in { animation: iosFadeIn 0.4s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
             @keyframes iosFadeIn { from { opacity: 0; transform: scale(0.98) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+            
             .toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
             .toggle input { opacity: 0; width: 0; height: 0; }
             .slider { position: absolute; inset: 0; background: #3a3a50; border-radius: 24px; transition: 0.3s; }
@@ -389,8 +403,9 @@
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 120px" }}>
 
             {/* === 標籤一：首頁總覽 (Overview & Transactions) === */}
+            {/* ★ 這裡綁定 key={timeFilter}，只要滑動切換月份，就會重新觸發淡入動畫 ★ */}
             {tab === "overview" && (
-              <div className="fade-in">
+              <div className="fade-in" key={`overview-${timeFilter}`}>
                 {/* 總結數字 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, margin: "20px 0" }}>
                   <div className="card" style={{ padding: 18 }}>
@@ -415,12 +430,11 @@
                   </div>
                 </div>
 
-                {/* 卡片：信用卡用量 (支援多張卡) */}
+                {/* 卡片：信用卡用量 */}
                 {data.creditCards.length > 0 && (
                   <div className="card" style={{ padding: "16px 20px", marginBottom: 24 }}>
                     <div style={{ fontSize: 13, color: "#888", fontWeight: 600, marginBottom: 12 }}>💳 信用卡本期消費</div>
                     {data.creditCards.map(card => {
-                      // 計算該卡片在「當前過濾時間」內的消費
                       const cardUsed = filteredTxs.filter(t => t.type === "expense" && t.accountId === card.id).reduce((s, t) => s + t.amount, 0);
                       const pct = Math.min((cardUsed / card.limit) * 100, 100);
                       return (
@@ -466,12 +480,11 @@
 
             {/* === 標籤二：圖表分析 (Analytics) === */}
             {tab === "analytics" && (
-              <div className="fade-in">
+              <div className="fade-in" key={`analytics-${timeFilter}`}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, marginBottom: 16 }}>
                   <div style={{ fontSize: 24, fontWeight: 700 }}>報表分析</div>
                 </div>
 
-                {/* 分類切換 Segmented Control */}
                 <div style={{ display: "flex", background: "#1a1a26", borderRadius: 12, padding: 4, marginBottom: 24 }}>
                   {[["all","全部支出"], ["cash","現金/帳戶"], ["credit","信用卡"]].map(([val, label]) => (
                     <button key={val} onClick={() => setSourceFilter(val)}
