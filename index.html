@@ -13,25 +13,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
   <style>
-    /* iOS 化基礎設定 */
-    * { 
-      box-sizing: border-box; 
-      margin: 0; 
-      padding: 0; 
-      -webkit-tap-highlight-color: transparent; 
-      touch-action: manipulation; 
-    }
-    body { 
-      background: #0f0f14; 
-      -webkit-font-smoothing: antialiased; 
-      user-select: none; 
-      -webkit-user-select: none;
-      overscroll-behavior-y: none; 
-    }
-    input, select, textarea { 
-      user-select: auto; 
-      -webkit-user-select: auto; 
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    body { background: #0f0f14; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; overscroll-behavior-y: none; }
+    input, select, textarea { user-select: auto; -webkit-user-select: auto; }
     ::-webkit-scrollbar { display: none; }
   </style>
 </head>
@@ -41,8 +25,6 @@
     const { useState, useEffect } = React;
 
     const STORAGE_KEY = "finance_tracker_v1";
-
-    // iOS 質感配色表，用於圖表分類
     const CHART_COLORS = ["#ff453a", "#ff9f0a", "#ffd60a", "#30d158", "#66d4cf", "#0a84ff", "#5e5ce6", "#bf5af2", "#ff375f"];
 
     const defaultAccounts = [
@@ -53,18 +35,9 @@
 
     const categories = ["餐飲", "交通", "購物", "娛樂", "醫療", "刷卡", "其他"];
 
-    function generateId() {
-      return Math.random().toString(36).substr(2, 9);
-    }
-
-    function getMonthKey(date) {
-      const d = new Date(date);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    }
-
-    function formatCurrency(n) {
-      return "NT$" + Number(n || 0).toLocaleString("zh-TW");
-    }
+    function generateId() { return Math.random().toString(36).substr(2, 9); }
+    function getMonthKey(date) { const d = new Date(date); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
+    function formatCurrency(n) { return "NT$" + Number(n || 0).toLocaleString("zh-TW"); }
 
     function FinanceTracker() {
       const [data, setData] = useState(() => {
@@ -84,11 +57,11 @@
       
       const [expandedAccount, setExpandedAccount] = useState(null); 
       const [editTx, setEditTx] = useState(null);
+      
+      // 控制左側選單的狀態
+      const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-      useEffect(() => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      }, [data]);
-
+      useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }, [data]);
       const save = (updates) => setData((d) => ({ ...d, ...updates }));
 
       const monthTxs = data.transactions.filter((t) => getMonthKey(t.date) === selectedMonth);
@@ -102,39 +75,24 @@
       const creditPct = Math.min((creditUsed / creditLimit) * 100, 100);
       const creditRemain = creditLimit - creditUsed;
 
-      const getAccountBalance = (accId) =>
-        data.transactions.filter((t) => t.accountId === accId)
-          .reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
+      const getAccountBalance = (accId) => data.transactions.filter((t) => t.accountId === accId).reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
 
-      // ----- 計算分析圖表資料 -----
       const getChartData = () => {
         const catSum = {};
-        // 加總一般支出
-        monthTxs.filter(t => t.type === "expense").forEach(t => {
-          catSum[t.category] = (catSum[t.category] || 0) + t.amount;
-        });
-        // 加上固定支出（視為一個獨立分類）
-        if (totalFixed > 0) {
-          catSum["固定支出"] = totalFixed;
-        }
+        monthTxs.filter(t => t.type === "expense").forEach(t => { catSum[t.category] = (catSum[t.category] || 0) + t.amount; });
+        if (totalFixed > 0) catSum["固定支出"] = totalFixed;
 
         const totalChartExpense = Object.values(catSum).reduce((a, b) => a + b, 0);
         
-        // 整理並排序
         const sortedList = Object.entries(catSum)
           .map(([name, amount]) => ({ name, amount }))
           .sort((a, b) => b.amount - a.amount)
           .map((item, index) => ({
-            ...item,
-            color: CHART_COLORS[index % CHART_COLORS.length],
-            percent: totalChartExpense === 0 ? 0 : Math.round((item.amount / totalChartExpense) * 100)
+            ...item, color: CHART_COLORS[index % CHART_COLORS.length], percent: totalChartExpense === 0 ? 0 : Math.round((item.amount / totalChartExpense) * 100)
           }));
 
-        // 產生 CSS conic-gradient 字串
-        let conicString = "";
-        if (totalChartExpense === 0) {
-          conicString = "#2a2a3e 0% 100%";
-        } else {
+        let conicString = totalChartExpense === 0 ? "#2a2a3e 0% 100%" : "";
+        if (totalChartExpense > 0) {
           let currentPercent = 0;
           conicString = sortedList.map(item => {
             const start = currentPercent;
@@ -143,12 +101,10 @@
             return `${item.color} ${start}% ${end}%`;
           }).join(", ");
         }
-
         return { list: sortedList, total: totalChartExpense, conicString };
       };
       
       const chartData = getChartData();
-      // -----------------------------
 
       const exportCSV = (mode) => {
         let csvContent = "";
@@ -186,15 +142,8 @@
 
       const addTransaction = () => {
         if (!form.amount || !form.accountId || !form.type) return;
-        
         if (editTx) {
-          save({
-            transactions: data.transactions.map((t) =>
-              t.id === editTx.id
-                ? { ...t, type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] }
-                : t
-            )
-          });
+          save({ transactions: data.transactions.map((t) => t.id === editTx.id ? { ...t, type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] } : t) });
           setEditTx(null);
         } else {
           const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] };
@@ -222,7 +171,6 @@
       const addAccount = () => {
         if (!form.name) return;
         const finalIcon = form.icon ? form.icon.trim() : "💼";
-        
         if (editAccount) {
           save({ accounts: data.accounts.map((a) => a.id === editAccount.id ? { ...a, name: form.name, icon: finalIcon, color: form.color || a.color } : a) });
           setEditAccount(null);
@@ -238,17 +186,17 @@
       if (!allMonths.includes(selectedMonth)) allMonths.push(selectedMonth);
       allMonths.sort().reverse();
 
-      const S = {
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Noto Sans TC', sans-serif",
-        background: "#0f0f14", minHeight: "100vh", color: "#e8e6f0",
-      };
+      const S = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Noto Sans TC', sans-serif", background: "#0f0f14", minHeight: "100vh", color: "#e8e6f0" };
+
+      // 側選單按鈕的共用樣式
+      const menuBtnStyle = { display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "16px 20px", background: "none", border: "none", color: "#e8e6f0", fontSize: 16, fontWeight: 600, cursor: "pointer", transition: "background 0.2s" };
 
       return (
         <div style={S}>
           <style>{`
             @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap');
             
-            .tab-btn { background: none; border: none; cursor: pointer; padding: 8px 10px; border-radius: 20px; font-size: 13px; font-family: inherit; font-weight: 500; transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1); color: #888; flex: 1; text-align: center; white-space: nowrap; }
+            .tab-btn { background: none; border: none; cursor: pointer; padding: 8px 10px; border-radius: 20px; font-size: 14px; font-family: inherit; font-weight: 500; transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1); color: #888; flex: 1; text-align: center; white-space: nowrap; }
             .tab-btn.active { background: #1e1e2e; color: #e8e6f0; transform: scale(1.04); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
             
             .card { background: #1a1a26; border-radius: 16px; border: 1px solid #2a2a3e; transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.4s ease; }
@@ -289,17 +237,57 @@
             
             .fab { transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1) !important; }
             .fab:active { transform: scale(0.85) !important; }
+
+            /* Sidebar CSS */
+            .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 998; opacity: 0; pointer-events: none; transition: opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
+            .sidebar-overlay.open { opacity: 1; pointer-events: auto; }
+            
+            .sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 280px; background: rgba(22, 22, 33, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); z-index: 999; transform: translateX(-100%); transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); border-right: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; }
+            .sidebar.open { transform: translateX(0); }
+            .menu-item:active { background: rgba(255,255,255,0.08); }
           `}</style>
 
+          {/* 側選單 Sidebar */}
+          <div className={`sidebar-overlay ${isMenuOpen ? "open" : ""}`} onClick={() => setIsMenuOpen(false)}></div>
+          <div className={`sidebar ${isMenuOpen ? "open" : ""}`}>
+            <div style={{ padding: "48px 24px 24px", borderBottom: "1px solid rgba(255,255,255,0.05)", marginBottom: 12 }}>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, color: "#fff" }}>財庫</div>
+              <div style={{ fontSize: 13, color: "#888", marginTop: 4, fontWeight: 500 }}>設定與分析</div>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              <button className="menu-item" style={menuBtnStyle} onClick={() => { setTab("analytics"); setIsMenuOpen(false); }}>
+                <span style={{ fontSize: 22 }}>📊</span> 圖表分析
+              </button>
+              <button className="menu-item" style={menuBtnStyle} onClick={() => { setTab("accounts"); setIsMenuOpen(false); }}>
+                <span style={{ fontSize: 22 }}>💼</span> 帳戶管理
+              </button>
+              
+              <div style={{ width: "85%", height: 1, background: "rgba(255,255,255,0.05)", margin: "16px auto" }}></div>
+              
+              <button className="menu-item" style={menuBtnStyle} onClick={() => { setModal("creditLimit"); setIsMenuOpen(false); }}>
+                <span style={{ fontSize: 22 }}>💳</span> 調整刷卡上限
+              </button>
+              <button className="menu-item" style={menuBtnStyle} onClick={() => { setModal("export"); setIsMenuOpen(false); }}>
+                <span style={{ fontSize: 22 }}>📤</span> 匯出資料 (CSV)
+              </button>
+            </div>
+            
+            <div style={{ padding: "24px", fontSize: 11, color: "#555", textAlign: "center" }}>v1.0 Local Storage</div>
+          </div>
+
           {/* Header */}
-          <div style={{ background: "rgba(19, 19, 30, 0.85)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid rgba(42, 42, 62, 0.5)", padding: "16px 20px", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ background: "rgba(19, 19, 30, 0.85)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid rgba(42, 42, 62, 0.5)", padding: "12px 16px", position: "sticky", top: 0, zIndex: 10 }}>
             <div style={{ maxWidth: 600, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 24, letterSpacing: 0.5 }}>財庫</div>
-                <div style={{ fontSize: 11, color: "#888", marginTop: 1, fontWeight: 500 }}>個人記帳系統</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/* 漢堡選單按鈕 */}
+                <button className="icon-btn" style={{ background: "none", border: "none", color: "#e8e6f0", cursor: "pointer", padding: "4px" }} onClick={() => setIsMenuOpen(true)}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                </button>
+                <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, letterSpacing: 0.5, paddingTop: 2 }}>財庫</div>
               </div>
+              
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <button className="btn-ghost icon-btn" onClick={() => setModal("export")}>📤</button>
                 <select className="input-field" style={{ width: "auto", fontSize: 14, padding: "8px 12px", background: "#1a1a26", border: "none" }} value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
                   {allMonths.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -309,59 +297,78 @@
 
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 120px" }}>
 
-            {/* Summary */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, margin: "20px 0" }}>
-              <div className="card fade-in" style={{ padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>本月收入</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: "#4ade80", letterSpacing: "-0.5px" }}>{formatCurrency(totalIncome)}</div>
+            {/* 若當前在「圖表」或「帳戶設定」，顯示大標題提示與返回按鈕 (取代原本的 summary) */}
+            {tab === "analytics" && (
+              <div className="fade-in" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 4px 10px" }}>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>📊 圖表分析</div>
+                <button className="btn-ghost" onClick={() => setTab("overview")}>返回首頁</button>
               </div>
-              <div className="card fade-in" style={{ padding: 18 }}>
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>本月支出</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: "#ff453a", letterSpacing: "-0.5px" }}>{formatCurrency(totalExpense + totalFixed)}</div>
-                <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>含固定 {formatCurrency(totalFixed)}</div>
+            )}
+            {tab === "accounts" && (
+              <div className="fade-in" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 4px 10px" }}>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>💼 帳戶管理</div>
+                <button className="btn-ghost" onClick={() => setTab("overview")}>返回首頁</button>
               </div>
-            </div>
+            )}
 
-            <div className="card fade-in" style={{ padding: 20, marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>月底結餘</div>
-                <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'DM Serif Display', serif", color: netBalance >= 0 ? "#4ade80" : "#ff453a", letterSpacing: "-0.5px" }}>
-                  {formatCurrency(Math.abs(netBalance))}
-                  <span style={{ fontSize: 16, fontFamily: "inherit", marginLeft: 6 }}>{netBalance >= 0 ? "▲" : "▼"}</span>
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>固定支出</div>
-                <div style={{ fontSize: 20, fontWeight: 600, color: "#ff9f0a" }}>{formatCurrency(totalFixed)}<span style={{fontSize: 12, color:"#888"}}>/月</span></div>
-              </div>
-            </div>
-
-            {/* Credit Card Limit */}
-            <div className="card clickable fade-in" style={{ padding: 20, marginBottom: 24 }} onClick={() => { setForm({ creditLimit: creditLimit }); setModal("creditLimit"); }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "#0a84ff22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>💳</div>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>本月刷卡</div>
-                    <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>上限 {formatCurrency(creditLimit)}</div>
+            {/* 只有在日常記帳的三個主 Tab 時，才顯示上方的資訊總覽與主標籤列 */}
+            {["overview", "transactions", "fixed"].includes(tab) && (
+              <div className="fade-in">
+                {/* Summary */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, margin: "20px 0" }}>
+                  <div className="card" style={{ padding: 18 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>本月收入</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#4ade80", letterSpacing: "-0.5px" }}>{formatCurrency(totalIncome)}</div>
+                  </div>
+                  <div className="card" style={{ padding: 18 }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>本月支出</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#ff453a", letterSpacing: "-0.5px" }}>{formatCurrency(totalExpense + totalFixed)}</div>
+                    <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>含固定 {formatCurrency(totalFixed)}</div>
                   </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: creditPct >= 90 ? "#ff453a" : creditPct >= 70 ? "#ff9f0a" : "#0a84ff" }}>{formatCurrency(creditUsed)}</div>
-                  <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>還剩 {formatCurrency(creditRemain)}</div>
+
+                <div className="card" style={{ padding: 20, marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>月底結餘</div>
+                    <div style={{ fontSize: 32, fontWeight: 700, fontFamily: "'DM Serif Display', serif", color: netBalance >= 0 ? "#4ade80" : "#ff453a", letterSpacing: "-0.5px" }}>
+                      {formatCurrency(Math.abs(netBalance))}
+                      <span style={{ fontSize: 16, fontFamily: "inherit", marginLeft: 6 }}>{netBalance >= 0 ? "▲" : "▼"}</span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>固定支出</div>
+                    <div style={{ fontSize: 20, fontWeight: 600, color: "#ff9f0a" }}>{formatCurrency(totalFixed)}<span style={{fontSize: 12, color:"#888"}}>/月</span></div>
+                  </div>
+                </div>
+
+                {/* Credit Card Limit */}
+                <div className="card clickable" style={{ padding: 20, marginBottom: 24 }} onClick={() => { setForm({ creditLimit: creditLimit }); setModal("creditLimit"); }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: "#0a84ff22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>💳</div>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600 }}>本月刷卡</div>
+                        <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>上限 {formatCurrency(creditLimit)}</div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: creditPct >= 90 ? "#ff453a" : creditPct >= 70 ? "#ff9f0a" : "#0a84ff" }}>{formatCurrency(creditUsed)}</div>
+                      <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>還剩 {formatCurrency(creditRemain)}</div>
+                    </div>
+                  </div>
+                  <div style={{ background: "#0f0f18", borderRadius: 99, height: 8, overflow: "hidden", border: "1px solid #2a2a3e" }}>
+                    <div style={{ height: "100%", borderRadius: 99, width: `${creditPct}%`, background: creditPct >= 90 ? "#ff453a" : creditPct >= 70 ? "#ff9f0a" : "#0a84ff", transition: "width 0.6s cubic-bezier(0.32, 0.72, 0, 1)" }} />
+                  </div>
+                </div>
+
+                {/* 精簡後的 Tabs */}
+                <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#1a1a26", borderRadius: 24, padding: 4, border: "1px solid #2a2a3e" }}>
+                  {[["overview","帳戶"],["transactions","收支明細"],["fixed","固定支出"]].map(([key, label]) => (
+                    <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+                  ))}
                 </div>
               </div>
-              <div style={{ background: "#0f0f18", borderRadius: 99, height: 8, overflow: "hidden", border: "1px solid #2a2a3e" }}>
-                <div style={{ height: "100%", borderRadius: 99, width: `${creditPct}%`, background: creditPct >= 90 ? "#ff453a" : creditPct >= 70 ? "#ff9f0a" : "#0a84ff", transition: "width 0.6s cubic-bezier(0.32, 0.72, 0, 1)" }} />
-              </div>
-            </div>
-
-            {/* 增加 Analytics 標籤 */}
-            <div style={{ display: "flex", gap: 2, marginBottom: 20, background: "#1a1a26", borderRadius: 24, padding: 4, border: "1px solid #2a2a3e" }}>
-              {[["overview","帳戶"],["transactions","收支"],["analytics","圖表"],["fixed","固定"],["accounts","管理"]].map(([key, label]) => (
-                <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
-              ))}
-            </div>
+            )}
 
             {/* Overview - 帳戶 */}
             {tab === "overview" && (
@@ -451,41 +458,18 @@
               </div>
             )}
 
-            {/* ★ 新增：Analytics - 圖表分析 ★ */}
+            {/* Analytics - 圖表分析 (從側邊欄點入) */}
             {tab === "analytics" && (
               <div className="fade-in">
                 <div className="card" style={{ padding: "32px 20px", display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 20 }}>
-                  
-                  {/* 圓餅圖 (甜甜圈) 本體 */}
-                  <div style={{ 
-                    position: "relative", 
-                    width: 220, 
-                    height: 220, 
-                    borderRadius: "50%", 
-                    background: `conic-gradient(${chartData.conicString})`,
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
-                  }}>
-                    {/* 中間挖空與總計文字 */}
-                    <div style={{ 
-                      position: "absolute", 
-                      inset: 22, 
-                      background: "#1a1a26", 
-                      borderRadius: "50%", 
-                      display: "flex", 
-                      flexDirection: "column", 
-                      alignItems: "center", 
-                      justifyContent: "center" 
-                    }}>
+                  <div style={{ position: "relative", width: 220, height: 220, borderRadius: "50%", background: `conic-gradient(${chartData.conicString})`, boxShadow: "0 8px 32px rgba(0,0,0,0.3)" }}>
+                    <div style={{ position: "absolute", inset: 22, background: "#1a1a26", borderRadius: "50%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
                       <div style={{ fontSize: 13, color: "#888", fontWeight: 500, marginBottom: 4 }}>本月總支出</div>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: "#e8e6f0", letterSpacing: "-0.5px" }}>
-                        {formatCurrency(chartData.total)}
-                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "#e8e6f0", letterSpacing: "-0.5px" }}>{formatCurrency(chartData.total)}</div>
                     </div>
                   </div>
-
                 </div>
 
-                {/* 分類明細卡片 */}
                 {chartData.list.length === 0 ? (
                    <div style={{ textAlign: "center", color: "#666", padding: "20px", fontSize: 15 }}>本月尚無支出紀錄</div>
                 ) : (
@@ -535,7 +519,7 @@
               </div>
             )}
 
-            {/* Accounts - 管理 */}
+            {/* Accounts - 帳戶管理 (從側邊欄點入) */}
             {tab === "accounts" && (
               <div className="fade-in">
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
