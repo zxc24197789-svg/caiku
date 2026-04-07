@@ -33,7 +33,9 @@
       { id: "future", name: "未來備用金", icon: "💰", color: "#f59e0b", balance: 0 },
     ];
 
-    const categories = ["餐飲", "交通", "購物", "娛樂", "醫療", "刷卡", "其他"];
+    // ★ 拆分收入與支出分類 ★
+    const expenseCategories = ["飲食", "交通", "購物", "娛樂", "居家", "醫療", "卡費", "刷卡", "進修", "其他"];
+    const incomeCategories = ["薪水", "獎金", "投資收益", "利息", "兼職", "退款", "其他"];
 
     function generateId() { return Math.random().toString(36).substr(2, 9); }
     function getMonthKey(date) { const d = new Date(date); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; }
@@ -58,7 +60,6 @@
       const [expandedAccount, setExpandedAccount] = useState(null); 
       const [editTx, setEditTx] = useState(null);
       
-      // 控制左側選單的狀態
       const [isMenuOpen, setIsMenuOpen] = useState(false);
 
       useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }, [data]);
@@ -71,7 +72,8 @@
       const netBalance = totalIncome - totalExpense - totalFixed;
 
       const creditLimit = data.creditLimit || 15000;
-      const creditUsed = monthTxs.filter((t) => t.type === "expense" && t.category === "刷卡").reduce((s, t) => s + t.amount, 0);
+      // 計算刷卡額度，同時包含「刷卡」和「卡費」這兩個可能的分類
+      const creditUsed = monthTxs.filter((t) => t.type === "expense" && (t.category === "刷卡" || t.category === "卡費")).reduce((s, t) => s + t.amount, 0);
       const creditPct = Math.min((creditUsed / creditLimit) * 100, 100);
       const creditRemain = creditLimit - creditUsed;
 
@@ -188,8 +190,10 @@
 
       const S = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Noto Sans TC', sans-serif", background: "#0f0f14", minHeight: "100vh", color: "#e8e6f0" };
 
-      // 側選單按鈕的共用樣式
       const menuBtnStyle = { display: "flex", alignItems: "center", gap: 14, width: "100%", padding: "16px 20px", background: "none", border: "none", color: "#e8e6f0", fontSize: 16, fontWeight: 600, cursor: "pointer", transition: "background 0.2s" };
+
+      // ★ 判斷當前表單應該顯示哪種分類 ★
+      const currentCategories = form.type === "income" ? incomeCategories : expenseCategories;
 
       return (
         <div style={S}>
@@ -238,7 +242,6 @@
             .fab { transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1) !important; }
             .fab:active { transform: scale(0.85) !important; }
 
-            /* Sidebar CSS */
             .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 998; opacity: 0; pointer-events: none; transition: opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
             .sidebar-overlay.open { opacity: 1; pointer-events: auto; }
             
@@ -280,7 +283,6 @@
           <div style={{ background: "rgba(19, 19, 30, 0.85)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", borderBottom: "1px solid rgba(42, 42, 62, 0.5)", padding: "12px 16px", position: "sticky", top: 0, zIndex: 10 }}>
             <div style={{ maxWidth: 600, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                {/* 漢堡選單按鈕 */}
                 <button className="icon-btn" style={{ background: "none", border: "none", color: "#e8e6f0", cursor: "pointer", padding: "4px" }} onClick={() => setIsMenuOpen(true)}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
                 </button>
@@ -297,7 +299,6 @@
 
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 120px" }}>
 
-            {/* 若當前在「圖表」或「帳戶設定」，顯示大標題提示與返回按鈕 (取代原本的 summary) */}
             {tab === "analytics" && (
               <div className="fade-in" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 4px 10px" }}>
                 <div style={{ fontSize: 24, fontWeight: 700 }}>📊 圖表分析</div>
@@ -311,7 +312,6 @@
               </div>
             )}
 
-            {/* 只有在日常記帳的三個主 Tab 時，才顯示上方的資訊總覽與主標籤列 */}
             {["overview", "transactions", "fixed"].includes(tab) && (
               <div className="fade-in">
                 {/* Summary */}
@@ -361,7 +361,7 @@
                   </div>
                 </div>
 
-                {/* 精簡後的 Tabs */}
+                {/* Tabs */}
                 <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#1a1a26", borderRadius: 24, padding: 4, border: "1px solid #2a2a3e" }}>
                   {[["overview","帳戶"],["transactions","收支明細"],["fixed","固定支出"]].map(([key, label]) => (
                     <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
@@ -458,7 +458,7 @@
               </div>
             )}
 
-            {/* Analytics - 圖表分析 (從側邊欄點入) */}
+            {/* Analytics - 圖表分析 */}
             {tab === "analytics" && (
               <div className="fade-in">
                 <div className="card" style={{ padding: "32px 20px", display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 20 }}>
@@ -519,7 +519,7 @@
               </div>
             )}
 
-            {/* Accounts - 帳戶管理 (從側邊欄點入) */}
+            {/* Accounts - 帳戶管理 */}
             {tab === "accounts" && (
               <div className="fade-in">
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
@@ -555,7 +555,10 @@
                 
                 <div style={{ display: "flex", background: "#0f0f18", borderRadius: 12, padding: 4, marginBottom: 20 }}>
                   {["expense","income"].map((t) => (
-                    <button key={t} onClick={() => setForm((f) => ({ ...f, type: t }))}
+                    <button key={t} onClick={() => {
+                      // ★ 切換收支類型時，清空原本選的分類，避免出錯 ★
+                      setForm((f) => ({ ...f, type: t, category: "" }));
+                    }}
                       style={{ flex: 1, padding: "10px", borderRadius: 10, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 14, fontWeight: 600, background: form.type === t ? (t === "income" ? "#34c759" : "#ff453a") : "transparent", color: form.type === t ? "white" : "#888", transition: "all 0.2s ease", boxShadow: form.type === t ? "0 2px 8px rgba(0,0,0,0.2)" : "none" }}>
                       {t === "expense" ? "支出" : "收入"}
                     </button>
@@ -569,9 +572,10 @@
                       <option value="" disabled>選擇帳戶</option>
                       {data.accounts.map((a) => <option key={a.id} value={a.id}>{a.icon} {a.name}</option>)}
                     </select>
+                    {/* ★ 這裡改用動態的 currentCategories ★ */}
                     <select className="input-field" value={form.category || ""} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
                       <option value="" disabled>分類</option>
-                      {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {currentCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <input className="input-field" type="date" value={form.date || ""} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
@@ -634,7 +638,7 @@
               <div className="modal">
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}><div style={{ width: 40, height: 5, background: "#3a3a50", borderRadius: 10 }}></div></div>
                 <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8, textAlign: "center" }}>💳 調整刷卡上限</div>
-                <div style={{ fontSize: 13, color: "#888", marginBottom: 24, textAlign: "center", lineHeight: 1.5 }}>設定每月最高刷卡額度。<br/>記帳時分類選「刷卡」，系統將自動為您把關。</div>
+                <div style={{ fontSize: 13, color: "#888", marginBottom: 24, textAlign: "center", lineHeight: 1.5 }}>設定每月最高刷卡額度。<br/>記帳時分類選「刷卡」或「卡費」，系統將自動為您把關。</div>
                 <input className="input-field" style={{ fontSize: 24, fontWeight: 700, padding: "16px", textAlign: "center" }} type="number" placeholder="NT$ 15,000" value={form.creditLimit || ""} onChange={(e) => setForm((f) => ({ ...f, creditLimit: e.target.value }))} />
                 <button className="btn-primary" style={{ width: "100%", marginTop: 24, padding: "16px", fontSize: 16 }} onClick={() => { save({ creditLimit: parseFloat(form.creditLimit) || 15000 }); setModal(null); setForm({}); }}>儲存設定</button>
               </div>
