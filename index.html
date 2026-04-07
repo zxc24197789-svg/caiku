@@ -68,7 +68,9 @@
       const [editFixed, setEditFixed] = useState(null);
       const [editAccount, setEditAccount] = useState(null);
       const [editCard, setEditCard] = useState(null);
+      
       const [expandedAccount, setExpandedAccount] = useState(null); 
+      const [expandedCard, setExpandedCard] = useState(null); // ★ 新增：追蹤展開的信用卡
       
       const [isMenuOpen, setIsMenuOpen] = useState(false);
       const [isUnlocked, setIsUnlocked] = useState(!data.settings.passcode);
@@ -137,6 +139,21 @@
 
       const getAccountBalance = (accId) => data.transactions.filter((t) => t.accountId === accId).reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
 
+      // ★ 計算信用卡總結資料 ★
+      const creditSummary = useMemo(() => {
+        let totalLimit = 0;
+        let totalUsed = 0;
+        data.creditCards.forEach(card => {
+          totalLimit += card.limit;
+          const cardUsed = filteredTxs.filter(t => t.type === "expense" && t.accountId === card.id).reduce((s, t) => s + t.amount, 0);
+          totalUsed += cardUsed;
+        });
+        const pct = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+        // 60% 黃色，80% 紅色
+        const color = pct >= 80 ? "#ff453a" : pct >= 60 ? "#ff9f0a" : "#0a84ff"; 
+        return { totalLimit, totalUsed, pct, color };
+      }, [data.creditCards, filteredTxs]);
+
       const chartData = useMemo(() => {
         const catSum = {};
         chartTxs.forEach(t => { catSum[t.category] = (catSum[t.category] || 0) + t.amount; });
@@ -166,7 +183,6 @@
         return { list: sortedList, total: totalChartExpense, conicString };
       }, [chartTxs, totalFixed, sourceFilter]);
 
-      // ★ 全新升級的觸控事件 (支援月份切換) ★
       const handleTouchStart = (e) => { 
         touchStartX.current = e.targetTouches[0].clientX; 
         touchStartY.current = e.targetTouches[0].clientY; 
@@ -182,26 +198,19 @@
         const distanceX = touchStartX.current - touchEndX.current;
         const distanceY = touchStartY.current - touchEndY.current;
         
-        // 判斷是否為明確的水平滑動
         if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > 40) {
-          
           if (distanceX < 0 && touchStartX.current < 40) {
-            // 1. 從最左側邊緣往右滑 -> 打開設定選單
             setIsMenuOpen(true);
           } else if (distanceX > 0 && isMenuOpen) {
-            // 2. 選單開啟時往左滑 -> 關閉設定選單
             setIsMenuOpen(false);
           } else if (!isMenuOpen && !modal && timeFilter.length === 7) {
-            // 3. 一般畫面中左右滑動 -> 切換月份 (僅限月份模式下)
             const currentMonths = dateOptions.months;
             const currentIndex = currentMonths.indexOf(timeFilter);
             
             if (currentIndex !== -1) {
               if (distanceX > 0 && currentIndex < currentMonths.length - 1) {
-                // 左滑 (往舊的月份切換)
                 setTimeFilter(currentMonths[currentIndex + 1]);
               } else if (distanceX < 0 && currentIndex > 0) {
-                // 右滑 (往新的月份切換)
                 setTimeFilter(currentMonths[currentIndex - 1]);
               }
             }
@@ -328,7 +337,6 @@
             @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
             .pill { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
             
-            /* 翻頁動畫 */
             .fade-in { animation: iosFadeIn 0.4s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
             @keyframes iosFadeIn { from { opacity: 0; transform: scale(0.98) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
             
@@ -403,7 +411,6 @@
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 120px" }}>
 
             {/* === 標籤一：首頁總覽 (Overview & Transactions) === */}
-            {/* ★ 這裡綁定 key={timeFilter}，只要滑動切換月份，就會重新觸發淡入動畫 ★ */}
             {tab === "overview" && (
               <div className="fade-in" key={`overview-${timeFilter}`}>
                 {/* 總結數字 */}
@@ -419,7 +426,6 @@
                   </div>
                 </div>
 
-                {/* 淨結餘 */}
                 <div className="card" style={{ padding: 20, marginBottom: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontSize: 12, color: "#888", marginBottom: 6, fontWeight: 500 }}>淨結餘</div>
@@ -430,22 +436,81 @@
                   </div>
                 </div>
 
-                {/* 卡片：信用卡用量 */}
+                {/* ★ 新版：信用卡全區塊 ★ */}
                 {data.creditCards.length > 0 && (
-                  <div className="card" style={{ padding: "16px 20px", marginBottom: 24 }}>
-                    <div style={{ fontSize: 13, color: "#888", fontWeight: 600, marginBottom: 12 }}>💳 信用卡本期消費</div>
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 13, color: "#888", fontWeight: 600, marginLeft: 8, marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+                      <span>💳 信用卡與負債 ({timeFilter})</span>
+                      <span style={{ color: creditSummary.color }}>總用量 {Math.round(creditSummary.pct)}%</span>
+                    </div>
+                    
+                    {/* 信用卡總結 */}
+                    <div className="card" style={{ padding: "16px 20px", marginBottom: 12, background: "rgba(30,30,46,0.5)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 8 }}>
+                        <div style={{ fontWeight: 600, color: "#e8e6f0" }}>全卡總額度</div>
+                        <div style={{ fontWeight: 700, color: creditSummary.color }}>
+                          {formatCurrency(creditSummary.totalUsed)} 
+                          <span style={{fontSize:11, color:"#888", fontWeight:400}}>/ {creditSummary.totalLimit}</span>
+                        </div>
+                      </div>
+                      <div style={{ background: "#0f0f18", borderRadius: 99, height: 8, overflow: "hidden", border: "1px solid #2a2a3e" }}>
+                        <div style={{ height: "100%", borderRadius: 99, width: `${creditSummary.pct}%`, background: creditSummary.color, transition: "width 0.6s" }} />
+                      </div>
+                    </div>
+
+                    {/* 單張卡片明細 */}
                     {data.creditCards.map(card => {
-                      const cardUsed = filteredTxs.filter(t => t.type === "expense" && t.accountId === card.id).reduce((s, t) => s + t.amount, 0);
+                      const cardTxs = filteredTxs.filter(t => t.type === "expense" && t.accountId === card.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+                      const cardUsed = cardTxs.reduce((s, t) => s + t.amount, 0);
                       const pct = Math.min((cardUsed / card.limit) * 100, 100);
+                      const isCardExpanded = expandedCard === card.id;
+                      const cardColor = pct >= 80 ? "#ff453a" : pct >= 60 ? "#ff9f0a" : card.color; // 警戒色
+
                       return (
-                        <div key={card.id} style={{ marginBottom: 16 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 6 }}>
-                            <div style={{ fontWeight: 600 }}>{card.icon} {card.name}</div>
-                            <div style={{ fontWeight: 700, color: pct >= 90 ? "#ff453a" : pct >= 70 ? "#ff9f0a" : card.color }}>{formatCurrency(cardUsed)} <span style={{fontSize:11, color:"#888", fontWeight:400}}>/ {card.limit}</span></div>
+                        <div key={card.id} style={{ marginBottom: 8 }}>
+                          <div 
+                            className="card clickable" 
+                            style={{ padding: "16px 20px", cursor: "pointer", borderBottomLeftRadius: isCardExpanded ? 0 : 16, borderBottomRightRadius: isCardExpanded ? 0 : 16, borderBottom: isCardExpanded ? "none" : "1px solid #2a2a3e" }}
+                            onClick={() => setExpandedCard(isCardExpanded ? null : card.id)}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ width: 28, height: 28, borderRadius: 8, background: card.color + "22", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{card.icon}</div>
+                                <div style={{ fontWeight: 600, fontSize: 15 }}>{card.name}</div>
+                              </div>
+                              <div style={{ fontWeight: 700, color: cardColor, fontSize: 16 }}>
+                                {formatCurrency(cardUsed)} <span style={{fontSize:12, fontWeight:500}}>({Math.round(pct)}%)</span>
+                              </div>
+                            </div>
+                            <div style={{ background: "#0f0f18", borderRadius: 99, height: 6, overflow: "hidden" }}>
+                              <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: cardColor, transition: "width 0.6s" }} />
+                            </div>
                           </div>
-                          <div style={{ background: "#0f0f18", borderRadius: 99, height: 6, overflow: "hidden" }}>
-                            <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`, background: pct >= 90 ? "#ff453a" : pct >= 70 ? "#ff9f0a" : card.color, transition: "width 0.6s" }} />
-                          </div>
+                          
+                          {/* 展開的單卡明細 */}
+                          {isCardExpanded && (
+                            <div className="fade-in" style={{ background: "#13131e", border: "1px solid #2a2a3e", borderTop: "none", borderRadius: "0 0 16px 16px", padding: "8px 20px", maxHeight: "300px", overflowY: "auto" }}>
+                              {cardTxs.length === 0 ? (
+                                <div style={{ fontSize: 13, color: "#666", textAlign: "center", padding: "20px 0" }}>本期無消費</div>
+                              ) : (
+                                cardTxs.map((tx) => (
+                                  <div key={tx.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontSize: 14, color: "#e8e6f0", display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
+                                        {tx.note || tx.category}
+                                        <span className="pill" style={{ background: "#ff453a15", color: "#ff453a" }}>{tx.category}</span>
+                                      </div>
+                                      <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>{tx.date}</div>
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                      <div style={{ fontSize: 15, fontWeight: 600, color: "#ff453a" }}>-{formatCurrency(tx.amount)}</div>
+                                      <button className="icon-btn" onClick={() => { setEditTx(tx); setForm({ type: tx.type, amount: tx.amount, accountId: tx.accountId, category: tx.category, note: tx.note, date: tx.date }); setModal("addTx"); }} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 16, padding: "4px" }}>✎</button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -644,7 +709,7 @@
 
           </div>
 
-          {/* === 懸浮新增按鈕 (僅在首頁顯示) === */}
+          {/* === 懸浮新增按鈕 === */}
           {tab === "overview" && (
             <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", zIndex: 20 }}>
               <button className="btn-primary fab" style={{ borderRadius: 99, width: 60, height: 60, fontSize: 28, padding: 0, boxShadow: "0 8px 32px rgba(124, 111, 205, 0.5)" }}
@@ -652,7 +717,7 @@
             </div>
           )}
 
-          {/* ================= Modals 區塊 ================= */}
+          {/* ================= Modals ================= */}
 
           {/* 新增/編輯 交易 */}
           {modal === "addTx" && (
@@ -701,7 +766,7 @@
             </div>
           )}
 
-          {/* 新增/編輯 帳戶 (現金) */}
+          {/* 新增/編輯 帳戶 */}
           {modal === "addAccount" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
               <div className="modal">
