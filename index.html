@@ -9,6 +9,9 @@
   <meta name="theme-color" content="#0f0f14" />
   <title>財庫 — 個人記帳 Pro</title>
   <link rel="apple-touch-icon" href="https://fav.farm/💰" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap" rel="stylesheet" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -44,6 +47,8 @@
             const parsed = JSON.parse(saved);
             if (!parsed.creditCards) parsed.creditCards = [];
             if (!parsed.settings) parsed.settings = { passcode: "", reminder: "" };
+            if (!parsed.templates) parsed.templates = [];
+            if (!parsed.allTags) parsed.allTags = ["日常", "必要", "衝動消費", "約會", "旅行"];
             return parsed;
           }
         } catch {}
@@ -56,6 +61,8 @@
           creditCards: [], 
           transactions: [], 
           fixedExpenses: [],
+          templates: [],
+          allTags: ["日常", "必要", "衝動消費", "約會", "旅行"],
           settings: { passcode: "", reminder: "20:00" }
         };
       });
@@ -63,6 +70,8 @@
       const [tab, setTab] = useState("overview");
       const [modal, setModal] = useState(null);
       const [form, setForm] = useState({});
+      const [showSplash, setSplash] = useState(true);
+      const [splashFading, setSplashFading] = useState(false);
       
       const [editTx, setEditTx] = useState(null);
       const [editFixed, setEditFixed] = useState(null);
@@ -76,8 +85,22 @@
       const [isUnlocked, setIsUnlocked] = useState(!data.settings.passcode);
       const [inputPin, setInputPin] = useState("");
 
+      // ★ 返回導航映射 ★
+      const backMap = { manage_accounts: "settings", manage_cards: "settings", manage_fixed: "settings", manage_templates: "settings", manage_tags: "settings", analytics: "overview", settings: "overview" };
+      const overviewTabs = ["overview", "transactions", "fixed"];
+      const [slideDir, setSlideDir] = useState("fade");
+
+      const navigateTo = (newTab, dir) => {
+        setSlideDir(dir || "fade");
+        setTab(newTab);
+      };
+      const animClass = slideDir === "right" ? "slide-in-right" : slideDir === "left" ? "slide-in-left" : "fade-in";
+
       const [timeFilter, setTimeFilter] = useState(getMonthKey(new Date()));
       const [sourceFilter, setSourceFilter] = useState("all"); 
+      const [searchQuery, setSearchQuery] = useState("");
+      const [categoryFilter, setCategoryFilter] = useState("all");
+      const [tagFilter, setTagFilter] = useState("all");
 
       const touchStartX = useRef(null);
       const touchStartY = useRef(null);
@@ -85,6 +108,11 @@
       const touchEndY = useRef(null);
 
       useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }, [data]);
+      useEffect(() => {
+        const t1 = setTimeout(() => setSplashFading(true), 1600);
+        const t2 = setTimeout(() => setSplash(false), 2200);
+        return () => { clearTimeout(t1); clearTimeout(t2); };
+      }, []);
       const save = (updates) => setData((d) => ({ ...d, ...updates }));
 
       const getTxSourceType = (accountId) => {
@@ -188,6 +216,64 @@
         return { list: sortedList, total: totalChartExpense, conicString };
       }, [chartTxs, totalFixed, sourceFilter]);
 
+      // ★ 趨勢折線圖數據 ★
+      const trendData = useMemo(() => {
+        const now = new Date();
+        const months = [];
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const key = getMonthKey(d);
+          const label = `${d.getMonth() + 1}月`;
+          const monthTx = data.transactions.filter(t => getMonthKey(t.date) === key);
+          const inc = monthTx.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+          const exp = monthTx.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+          months.push({ key, label, income: inc, expense: exp });
+        }
+        const maxVal = Math.max(...months.map(m => Math.max(m.income, m.expense)), 1);
+        return { months, maxVal };
+      }, [data.transactions]);
+
+      // ★ 搜尋/篩選後的交易 ★
+      const searchedTxs = useMemo(() => {
+        let list = filteredTxs;
+        if (searchQuery.trim()) {
+          const q = searchQuery.trim().toLowerCase();
+          list = list.filter(t => 
+            (t.note && t.note.toLowerCase().includes(q)) || 
+            t.category.toLowerCase().includes(q) ||
+            (t.tags && t.tags.some(tag => tag.toLowerCase().includes(q)))
+          );
+        }
+        if (categoryFilter !== "all") {
+          list = list.filter(t => t.category === categoryFilter);
+        }
+        if (tagFilter !== "all") {
+          list = list.filter(t => t.tags && t.tags.includes(tagFilter));
+        }
+        return list.sort((a, b) => new Date(b.date) - new Date(a.date));
+      }, [filteredTxs, searchQuery, categoryFilter, tagFilter]);
+
+      // ★ 範本快速記帳 ★
+      const applyTemplate = (tpl) => {
+        const tx = { id: generateId(), type: tpl.type, amount: tpl.amount, accountId: tpl.accountId, category: tpl.category, note: tpl.note || "", tags: tpl.tags || [], date: new Date().toISOString().split("T")[0] };
+        save({ transactions: [...data.transactions, tx] });
+      };
+      const saveAsTemplate = () => {
+        if (!form.amount || !form.accountId) return;
+        const tpl = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", tags: form.tags || [] };
+        save({ templates: [...data.templates, tpl] });
+      };
+      const deleteTemplate = (id) => { save({ templates: data.templates.filter(t => t.id !== id) }); };
+
+      // ★ 標籤管理 ★
+      const addTag = (tag) => {
+        if (tag && !data.allTags.includes(tag)) save({ allTags: [...data.allTags, tag] });
+      };
+      const toggleFormTag = (tag) => {
+        const tags = form.tags || [];
+        setForm(f => ({ ...f, tags: tags.includes(tag) ? tags.filter(t => t !== tag) : [...tags, tag] }));
+      };
+
       // ★ 修正滑動方向邏輯 ★
       const handleTouchStart = (e) => { 
         touchStartX.current = e.targetTouches[0].clientX; 
@@ -209,19 +295,18 @@
             setIsMenuOpen(true);
           } else if (distanceX > 0 && isMenuOpen) {
             setIsMenuOpen(false);
-          } else if (!isMenuOpen && !modal && timeFilter.length === 7) {
-            // 切換月份邏輯
-            // 注意：陣列是新到舊排列 [ "2026-04", "2026-03", "2026-02" ]
-            const currentMonths = dateOptions.months;
-            const currentIndex = currentMonths.indexOf(timeFilter);
-            
-            if (currentIndex !== -1) {
-              if (distanceX < 0 && currentIndex < currentMonths.length - 1) {
-                // 往右滑 (distanceX < 0 代表手指往右移) -> 看舊的 (上個月) -> 陣列索引+1
-                setTimeFilter(currentMonths[currentIndex + 1]);
-              } else if (distanceX > 0 && currentIndex > 0) {
-                // 往左滑 (distanceX > 0 代表手指往左移) -> 看新的 (下個月) -> 陣列索引-1
-                setTimeFilter(currentMonths[currentIndex - 1]);
+          } else if (!isMenuOpen && !modal) {
+            // ★ 右滑返回上一頁 ★
+            if (distanceX < 0 && backMap[tab]) {
+              navigateTo(backMap[tab], "left");
+            }
+            // ★ overview 子分頁左右滑切換 ★
+            else if (overviewTabs.includes(tab)) {
+              const idx = overviewTabs.indexOf(tab);
+              if (distanceX > 0 && idx < overviewTabs.length - 1) {
+                navigateTo(overviewTabs[idx + 1], "right");
+              } else if (distanceX < 0 && idx > 0) {
+                navigateTo(overviewTabs[idx - 1], "left");
               }
             }
           }
@@ -234,14 +319,14 @@
       };
 
       const exportCSV = () => {
-        const rows = [["日期", "類型", "來源(帳戶/卡片)", "分類", "備注", "金額(NT$)"]];
+        const rows = [["日期", "類型", "來源(帳戶/卡片)", "分類", "標籤", "備注", "金額(NT$)"]];
         [...data.transactions].sort((a, b) => new Date(a.date) - new Date(b.date)).forEach((tx) => {
           let sourceName = "";
           const acc = data.accounts.find(a => a.id === tx.accountId);
           const card = data.creditCards.find(c => c.id === tx.accountId);
           if (acc) sourceName = acc.name;
           else if (card) sourceName = card.name;
-          rows.push([tx.date, tx.type === "income" ? "收入" : "支出", sourceName, tx.category, tx.note, tx.type === "income" ? tx.amount : -tx.amount]);
+          rows.push([tx.date, tx.type === "income" ? "收入" : "支出", sourceName, tx.category, (tx.tags || []).join(";"), tx.note, tx.type === "income" ? tx.amount : -tx.amount]);
         });
         const csvContent = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
         const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
@@ -256,9 +341,9 @@
       const addTransaction = () => {
         if (!form.amount || !form.accountId || !form.type) return;
         if (editTx) {
-          save({ transactions: data.transactions.map((t) => t.id === editTx.id ? { ...t, type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] } : t) });
+          save({ transactions: data.transactions.map((t) => t.id === editTx.id ? { ...t, type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", tags: form.tags || [], date: form.date || new Date().toISOString().split("T")[0] } : t) });
         } else {
-          const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] };
+          const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", tags: form.tags || [], date: form.date || new Date().toISOString().split("T")[0] };
           save({ transactions: [...data.transactions, tx] });
         }
         setModal(null); setForm({}); setEditTx(null);
@@ -287,6 +372,54 @@
         }
         else if(listName === 'fixed') save({ fixedExpenses: data.fixedExpenses.filter(f => f.id !== id) });
       };
+
+      if (showSplash) {
+        return (
+          <div style={{
+            position: "fixed", inset: 0, background: "#0f0f14", display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", zIndex: 9999,
+            opacity: splashFading ? 0 : 1, transform: splashFading ? "scale(1.08)" : "scale(1)",
+            transition: "opacity 0.6s cubic-bezier(0.32, 0.72, 0, 1), transform 0.6s cubic-bezier(0.32, 0.72, 0, 1)"
+          }}>
+            <div style={{ position: "relative", marginBottom: 32 }}>
+              <div className="splash-ring" style={{
+                width: 110, height: 110, borderRadius: "50%",
+                background: "conic-gradient(from 0deg, #7c6fcd, #c4b5fd, #5e5ce6, #a78bfa, #7c6fcd)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                animation: "splashSpin 2s linear infinite"
+              }}>
+                <div style={{
+                  width: 96, height: 96, borderRadius: "50%", background: "#0f0f14",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44
+                }}>💰</div>
+              </div>
+              <div style={{
+                position: "absolute", inset: -8, borderRadius: "50%",
+                background: "radial-gradient(circle, rgba(124,111,205,0.25) 0%, transparent 70%)",
+                animation: "splashPulse 1.6s ease-in-out infinite", zIndex: -1
+              }}></div>
+            </div>
+            <div style={{
+              fontFamily: "'DM Serif Display', serif", fontSize: 36, color: "#fff",
+              letterSpacing: 2, opacity: 0, animation: "splashTextIn 0.8s 0.3s forwards"
+            }}>財庫</div>
+            <div style={{
+              fontSize: 13, color: "rgba(255,255,255,0.35)", marginTop: 8, fontWeight: 500,
+              letterSpacing: 4, opacity: 0, animation: "splashTextIn 0.8s 0.6s forwards"
+            }}>FINANCE VAULT</div>
+            <div style={{
+              marginTop: 48, width: 32, height: 3, borderRadius: 2, background: "#7c6fcd",
+              opacity: 0, animation: "splashBarIn 1.2s 0.9s forwards"
+            }}></div>
+            <style>{`
+              @keyframes splashSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+              @keyframes splashPulse { 0%,100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 0.8; } }
+              @keyframes splashTextIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+              @keyframes splashBarIn { 0% { opacity: 0; width: 0; } 50% { opacity: 1; } 100% { opacity: 0.6; width: 80px; } }
+            `}</style>
+          </div>
+        );
+      }
 
       if (!isUnlocked) {
         const handlePin = (n) => {
@@ -327,8 +460,10 @@
         <div style={{ minHeight: "100vh" }} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
           <style>{`
             @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap');
-            .tab-btn { background: none; border: none; cursor: pointer; padding: 8px 10px; border-radius: 20px; font-size: 14px; font-family: inherit; font-weight: 500; transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1); color: #888; flex: 1; text-align: center; white-space: nowrap; }
-            .tab-btn.active { background: #3a3a50; color: #fff; transform: scale(1.04); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+            .tab-btn { background: none; border: none; cursor: pointer; padding: 10px 10px; border-radius: 20px; font-size: 14px; font-family: inherit; font-weight: 500; transition: all 0.45s cubic-bezier(0.32, 0.72, 0, 1); color: rgba(255,255,255,0.4); flex: 1; text-align: center; white-space: nowrap; position: relative; z-index: 2; }
+            .tab-btn.active { color: #fff; font-weight: 600; }
+            .glass-tab-bar { position: relative; display: flex; gap: 0; background: rgba(255,255,255,0.04); border-radius: 28px; padding: 5px; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%); box-shadow: 0 4px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.06); overflow: hidden; margin-bottom: 20px; }
+            .glass-indicator { position: absolute; top: 5px; bottom: 5px; border-radius: 22px; background: rgba(255,255,255,0.1); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 2px 12px rgba(124,111,205,0.25), inset 0 1px 0 rgba(255,255,255,0.1); transition: left 0.45s cubic-bezier(0.32, 0.72, 0, 1), width 0.45s cubic-bezier(0.32, 0.72, 0, 1); z-index: 1; }
             .card { background: #1a1a26; border-radius: 16px; border: 1px solid #2a2a3e; transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.4s ease; }
             .card.clickable:active { transform: scale(0.96); opacity: 0.8; }
             .btn-primary { background: #7c6fcd; color: white; border: none; border-radius: 12px; padding: 12px 20px; cursor: pointer; font-size: 15px; font-weight: 600; transition: transform 0.3s, background 0.2s; }
@@ -349,6 +484,10 @@
             
             .fade-in { animation: iosFadeIn 0.4s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
             @keyframes iosFadeIn { from { opacity: 0; transform: scale(0.98) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+            .slide-in-right { animation: slideInRight 0.4s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
+            @keyframes slideInRight { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: translateX(0); } }
+            .slide-in-left { animation: slideInLeft 0.4s cubic-bezier(0.32, 0.72, 0, 1) forwards; }
+            @keyframes slideInLeft { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: translateX(0); } }
             
             .toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
             .toggle input { opacity: 0; width: 0; height: 0; }
@@ -388,7 +527,7 @@
                 <span style={{ fontSize: 22 }}>⚙️</span> 系統設定
               </button>
             </div>
-            <div style={{ padding: "24px", fontSize: 11, color: "#555", textAlign: "center" }}>v2.0 Pro Edition</div>
+            <div style={{ padding: "24px", fontSize: 11, color: "#555", textAlign: "center" }}>v3.0 Pro Edition</div>
           </div>
 
           {/* === 頂部導航列 === */}
@@ -421,8 +560,8 @@
           <div style={{ maxWidth: 600, margin: "0 auto", padding: "0 16px 120px" }}>
 
             {/* === 標籤一：首頁總覽 (Overview & Transactions) === */}
-            {tab === "overview" && (
-              <div className="fade-in" key={`overview-${timeFilter}`}>
+            {overviewTabs.includes(tab) && (
+              <div key={`overview-${timeFilter}`}>
                 {/* 總結數字 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, margin: "20px 0" }}>
                   <div className="card" style={{ padding: 18 }}>
@@ -524,10 +663,31 @@
                   </div>
                 )}
 
-                {/* Tabs */}
-                <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#1a1a26", borderRadius: 24, padding: 4, border: "1px solid #2a2a3e" }}>
+                {/* ★ 快速記帳範本 ★ */}
+                {data.templates && data.templates.length > 0 && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 13, color: "#888", fontWeight: 600, marginLeft: 8, marginBottom: 8 }}>⚡ 快速記帳</div>
+                    <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+                      {data.templates.map(tpl => {
+                        const acc = data.accounts.find(a => a.id === tpl.accountId) || data.creditCards.find(c => c.id === tpl.accountId);
+                        return (
+                          <button key={tpl.id} className="card clickable" onClick={() => applyTemplate(tpl)}
+                            style={{ padding: "12px 16px", minWidth: 120, flexShrink: 0, cursor: "pointer", border: "1px solid #2a2a3e", textAlign: "left" }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: "#e8e6f0", marginBottom: 4 }}>{tpl.note || tpl.category}</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: tpl.type === "income" ? "#34c759" : "#ff453a" }}>{tpl.type === "income" ? "+" : "-"}{formatCurrency(tpl.amount)}</div>
+                            <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{acc?.icon} {acc?.name || "?"}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ★ Liquid Glass Tab Bar ★ */}
+                <div className="glass-tab-bar">
+                  <div className="glass-indicator" style={{ left: `calc(${overviewTabs.indexOf(tab) >= 0 ? overviewTabs.indexOf(tab) : 0} * ${100/3}% + 5px)`, width: `calc(${100/3}% - 4px)` }}></div>
                   {[["overview","帳戶"],["transactions","收支明細"],["fixed","固定支出"]].map(([key, label]) => (
-                    <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>{label}</button>
+                    <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => { setSlideDir("fade"); setTab(key); }}>{label}</button>
                   ))}
                 </div>
               </div>
@@ -535,7 +695,7 @@
 
             {/* Overview - 帳戶 */}
             {tab === "overview" && (
-              <div className="fade-in">
+              <div className={animClass} key={`accts-${tab}`}>
                 {data.accounts.map((acc) => {
                   const bal = getAccountBalance(acc.id);
                   const accTxs = data.transactions
@@ -594,12 +754,28 @@
 
             {/* Transactions - 收支明細 */}
             {tab === "transactions" && (
-              <div className="fade-in">
-                {monthTxs.length === 0 ? (
-                  <div className="card" style={{ padding: 40, textAlign: "center", color: "#666", fontSize: 15 }}>本月暫無記錄</div>
+              <div className={animClass} key={`tx-${tab}`}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                  <input className="input-field" style={{ flex: 2, minWidth: 140, padding: "10px 14px", fontSize: 14 }} type="text" placeholder="🔍 搜尋備註、分類、標籤..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                  <select className="input-field" style={{ flex: 1, minWidth: 90, padding: "10px 8px", fontSize: 13 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+                    <option value="all">全部分類</option>
+                    {[...expenseCategories, ...incomeCategories].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                {data.allTags && data.allTags.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
+                    <button className="pill" onClick={() => setTagFilter("all")} style={{ background: tagFilter === "all" ? "#7c6fcd33" : "#1a1a26", color: tagFilter === "all" ? "#c4b5fd" : "#888", border: tagFilter === "all" ? "1px solid #7c6fcd" : "1px solid #2a2a3e", padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>全部</button>
+                    {data.allTags.map(tag => (
+                      <button key={tag} className="pill" onClick={() => setTagFilter(tagFilter === tag ? "all" : tag)} style={{ background: tagFilter === tag ? "#7c6fcd33" : "#1a1a26", color: tagFilter === tag ? "#c4b5fd" : "#888", border: tagFilter === tag ? "1px solid #7c6fcd" : "1px solid #2a2a3e", padding: "5px 10px", cursor: "pointer", whiteSpace: "nowrap" }}>#{tag}</button>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: "#666", marginBottom: 8, marginLeft: 4 }}>共 {searchedTxs.length} 筆</div>
+                {searchedTxs.length === 0 ? (
+                  <div className="card" style={{ padding: 40, textAlign: "center", color: "#666", fontSize: 15 }}>{searchQuery || categoryFilter !== "all" || tagFilter !== "all" ? "找不到符合的記錄" : "本月暫無記錄"}</div>
                 ) : (
                   <div className="card" style={{ padding: "8px 20px" }}>
-                    {[...monthTxs].sort((a, b) => new Date(b.date) - new Date(a.date)).map((tx) => {
+                    {searchedTxs.map((tx) => {
                       const acc = data.accounts.find((a) => a.id === tx.accountId) || data.creditCards.find((c) => c.id === tx.accountId);
                       return (
                         <div key={tx.id} className="tx-row">
@@ -607,11 +783,16 @@
                           <div style={{ flex: 1, minWidth: 0, marginLeft: 4 }}>
                             <div style={{ fontSize: 15, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>{tx.note || tx.category}</div>
                             <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{tx.date} · {acc?.name || "未知"} · {tx.category}</div>
+                            {tx.tags && tx.tags.length > 0 && (
+                              <div style={{ display: "flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+                                {tx.tags.map(tag => <span key={tag} className="pill" style={{ background: "#7c6fcd22", color: "#a78bfa", fontSize: 10, padding: "2px 6px" }}>#{tag}</span>)}
+                              </div>
+                            )}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                             <div style={{ fontWeight: 700, fontSize: 15, color: tx.type === "income" ? "#34c759" : "#ff453a", marginRight: 4 }}>{tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}</div>
-                            <button className="icon-btn" onClick={() => { setEditTx(tx); setForm({ type: tx.type, amount: tx.amount, accountId: tx.accountId, category: tx.category, note: tx.note, date: tx.date }); setModal("addTx"); }} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 16, padding: "4px" }}>✎</button>
-                            <button className="icon-btn" onClick={() => deleteTransaction(tx.id)} style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20, padding: "4px" }}>×</button>
+                            <button className="icon-btn" onClick={() => { setEditTx(tx); setForm({ type: tx.type, amount: tx.amount, accountId: tx.accountId, category: tx.category, note: tx.note, date: tx.date, tags: tx.tags || [] }); setModal("addTx"); }} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 16, padding: "4px" }}>✎</button>
+                            <button className="icon-btn" onClick={() => deleteItem(tx.id, 'transactions')} style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20, padding: "4px" }}>×</button>
                           </div>
                         </div>
                       );
@@ -665,12 +846,53 @@
                     ))
                   )}
                 </div>
+
+                {/* ★ 收支趨勢折線圖 ★ */}
+                <div style={{ fontSize: 13, color: "#888", fontWeight: 600, marginLeft: 8, marginBottom: 8, marginTop: 24 }}>近 6 個月收支趨勢</div>
+                <div className="card" style={{ padding: "24px 16px 16px" }}>
+                  <svg viewBox="0 0 320 180" style={{ width: "100%", height: "auto" }}>
+                    {/* Grid lines */}
+                    {[0,1,2,3,4].map(i => (
+                      <line key={i} x1="40" y1={20 + i * 35} x2="310" y2={20 + i * 35} stroke="#2a2a3e" strokeWidth="0.5" />
+                    ))}
+                    {/* Y-axis labels */}
+                    {[0,1,2,3,4].map(i => (
+                      <text key={i} x="36" y={24 + i * 35} fill="#666" fontSize="8" textAnchor="end">{Math.round(trendData.maxVal * (4-i) / 4 / 1000)}k</text>
+                    ))}
+                    {/* Income line */}
+                    <polyline fill="none" stroke="#34c759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      points={trendData.months.map((m, i) => `${40 + i * 54},${160 - (m.income / trendData.maxVal) * 140}`).join(" ")} />
+                    {/* Expense line */}
+                    <polyline fill="none" stroke="#ff453a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      points={trendData.months.map((m, i) => `${40 + i * 54},${160 - (m.expense / trendData.maxVal) * 140}`).join(" ")} />
+                    {/* Income dots */}
+                    {trendData.months.map((m, i) => (
+                      <circle key={`inc-${i}`} cx={40 + i * 54} cy={160 - (m.income / trendData.maxVal) * 140} r="3.5" fill="#34c759" stroke="#1a1a26" strokeWidth="1.5" />
+                    ))}
+                    {/* Expense dots */}
+                    {trendData.months.map((m, i) => (
+                      <circle key={`exp-${i}`} cx={40 + i * 54} cy={160 - (m.expense / trendData.maxVal) * 140} r="3.5" fill="#ff453a" stroke="#1a1a26" strokeWidth="1.5" />
+                    ))}
+                    {/* X-axis labels */}
+                    {trendData.months.map((m, i) => (
+                      <text key={i} x={40 + i * 54} y="176" fill="#888" fontSize="9" textAnchor="middle">{m.label}</text>
+                    ))}
+                  </svg>
+                  <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#34c759" }}></div>
+                      <span style={{ color: "#888" }}>收入</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#ff453a" }}></div>
+                      <span style={{ color: "#888" }}>支出</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
-
-            {/* Fixed Expenses - 固定支出 */}
             {tab === "fixed" && (
-              <div className="fade-in">
+              <div className={animClass} key={`fixed-${tab}`}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <div style={{ fontSize: 14, color: "#888", fontWeight: 500 }}>合計：<span style={{ color: "#ff9f0a", fontWeight: 700, fontSize: 16 }}>{formatCurrency(totalFixed)}</span></div>
                   <button className="btn-primary" style={{ padding: "8px 16px", fontSize: 13, borderRadius: 10 }} onClick={() => { setForm({}); setEditFixed(null); setModal("addFixed"); }}>+ 新增固定</button>
@@ -711,6 +933,12 @@
                   </button>
                   <button className="ios-list-item" onClick={() => setTab("manage_fixed")}>
                     <span>🔁 固定支出管理</span> <span style={{color: "#666"}}>›</span>
+                  </button>
+                  <button className="ios-list-item" onClick={() => setTab("manage_templates")}>
+                    <span>⚡ 快速範本管理</span> <span style={{color: "#666"}}>›</span>
+                  </button>
+                  <button className="ios-list-item" onClick={() => setTab("manage_tags")}>
+                    <span>🏷️ 標籤管理</span> <span style={{color: "#666"}}>›</span>
                   </button>
                 </div>
 
@@ -813,10 +1041,72 @@
               </div>
             )}
 
-          </div>
+            {/* === 子頁面：管理快速範本 === */}
+            {tab === "manage_templates" && (
+              <div className="fade-in">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 24px" }}>
+                  <button className="btn-ghost" onClick={() => setTab("settings")}>‹ 返回</button>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>快速範本</div>
+                  <div style={{ width: 50 }}></div>
+                </div>
+                {(!data.templates || data.templates.length === 0) ? (
+                  <div className="card" style={{ padding: 40, textAlign: "center", color: "#666", fontSize: 14 }}>
+                    <div style={{ fontSize: 32, marginBottom: 12 }}>⚡</div>
+                    尚無範本<br/>在新增記錄時點「儲存為常用範本」即可建立
+                  </div>
+                ) : (
+                  <div style={iosCardStyle}>
+                    {data.templates.map(tpl => {
+                      const acc = data.accounts.find(a => a.id === tpl.accountId) || data.creditCards.find(c => c.id === tpl.accountId);
+                      return (
+                        <div key={tpl.id} className="tx-row" style={{ padding: "14px 16px" }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 15 }}>{tpl.note || tpl.category}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{acc?.icon} {acc?.name} · {tpl.category} · {formatCurrency(tpl.amount)}</div>
+                            {tpl.tags && tpl.tags.length > 0 && (
+                              <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                                {tpl.tags.map(tag => <span key={tag} className="pill" style={{ background: "#7c6fcd22", color: "#a78bfa", fontSize: 10, padding: "2px 6px" }}>#{tag}</span>)}
+                              </div>
+                            )}
+                          </div>
+                          <button className="icon-btn" onClick={() => deleteTemplate(tpl.id)} style={{ background: "none", border: "none", color: "#ff453a", cursor: "pointer", fontSize: 18, padding: "8px" }}>×</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
-          {/* === 懸浮新增按鈕 === */}
-          {tab === "overview" && (
+            {/* === 子頁面：管理標籤 === */}
+            {tab === "manage_tags" && (
+              <div className="fade-in">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 24px" }}>
+                  <button className="btn-ghost" onClick={() => setTab("settings")}>‹ 返回</button>
+                  <div style={{ fontSize: 18, fontWeight: 700 }}>標籤管理</div>
+                  <button className="btn-ghost" style={{color: "#0a84ff", border: "none"}} onClick={() => { const t = prompt("新增標籤名稱"); if(t && t.trim()) addTag(t.trim()); }}>新增</button>
+                </div>
+                <div style={iosCardStyle}>
+                  {(data.allTags || []).length === 0 ? <div style={{padding: 24, textAlign: "center", color:"#666"}}>無標籤</div> :
+                    (data.allTags || []).map(tag => {
+                      const count = data.transactions.filter(t => t.tags && t.tags.includes(tag)).length;
+                      return (
+                        <div key={tag} className="tx-row" style={{ padding: "14px 16px" }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 600, fontSize: 15, color: "#c4b5fd" }}>#{tag}</div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>{count} 筆交易使用</div>
+                          </div>
+                          <button className="icon-btn" onClick={() => { if(confirm(`確定刪除標籤「${tag}」？`)) save({ allTags: data.allTags.filter(t => t !== tag) }); }} style={{ background: "none", border: "none", color: "#ff453a", cursor: "pointer", fontSize: 18, padding: "8px" }}>×</button>
+                        </div>
+                      );
+                    })
+                  }
+                </div>
+              </div>
+            )}
+
+          </div>
+          {overviewTabs.includes(tab) && (
             <div style={{ position: "fixed", bottom: 32, left: "50%", transform: "translateX(-50%)", zIndex: 20 }}>
               <button className="btn-primary fab" style={{ borderRadius: 99, width: 60, height: 60, fontSize: 28, padding: 0, boxShadow: "0 8px 32px rgba(124, 111, 205, 0.5)" }}
                 onClick={() => { setEditTx(null); setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+</button>
@@ -862,12 +1152,29 @@
                   </div>
                   <input className="input-field" type="date" value={form.date || ""} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
                   <input className="input-field" type="text" placeholder="寫點備註吧..." value={form.note || ""} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} />
+                  
+                  {/* ★ 標籤選擇 ★ */}
+                  <div>
+                    <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>標籤（選填）</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {(data.allTags || []).map(tag => {
+                        const selected = (form.tags || []).includes(tag);
+                        return (
+                          <button key={tag} onClick={() => toggleFormTag(tag)} style={{ padding: "5px 10px", borderRadius: 12, fontSize: 12, fontWeight: 600, border: selected ? "1px solid #7c6fcd" : "1px solid #3a3a50", background: selected ? "#7c6fcd33" : "#0f0f18", color: selected ? "#c4b5fd" : "#888", cursor: "pointer" }}>#{tag}</button>
+                        );
+                      })}
+                      <button onClick={() => { const t = prompt("新增標籤名稱"); if(t) { addTag(t.trim()); toggleFormTag(t.trim()); } }} style={{ padding: "5px 10px", borderRadius: 12, fontSize: 12, border: "1px dashed #3a3a50", background: "transparent", color: "#666", cursor: "pointer" }}>+ 新標籤</button>
+                    </div>
+                  </div>
                 </div>
                 
                 <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
                   {editTx && <button className="btn-ghost" style={{ flex: 1, padding: "16px", color: "#ff453a", background: "#ff453a11", border: "none" }} onClick={() => { deleteItem(editTx.id, 'transactions'); setModal(null); setEditTx(null); }}>刪除</button>}
                   <button className="btn-primary" style={{ flex: 2, padding: "16px", fontSize: 16 }} onClick={addTransaction}>{editTx ? "儲存" : "確認新增"}</button>
                 </div>
+                {!editTx && form.amount && form.accountId && (
+                  <button className="btn-ghost" style={{ width: "100%", marginTop: 8, padding: "12px", textAlign: "center", color: "#0a84ff" }} onClick={() => { saveAsTemplate(); }}>💾 儲存為常用範本</button>
+                )}
               </div>
             </div>
           )}
