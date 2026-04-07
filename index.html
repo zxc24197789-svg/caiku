@@ -64,8 +64,10 @@
       const [editFixed, setEditFixed] = useState(null);
       const [editAccount, setEditAccount] = useState(null);
       
-      // 👇 新增：用來記錄目前點擊展開的帳戶 ID
+      // 記錄目前點擊展開的帳戶 ID
       const [expandedAccount, setExpandedAccount] = useState(null); 
+      // 記錄目前正在編輯的交易紀錄
+      const [editTx, setEditTx] = useState(null);
 
       useEffect(() => {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -124,8 +126,22 @@
 
       const addTransaction = () => {
         if (!form.amount || !form.accountId || !form.type) return;
-        const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] };
-        save({ transactions: [...data.transactions, tx] });
+        
+        if (editTx) {
+          // 更新現有紀錄
+          save({
+            transactions: data.transactions.map((t) =>
+              t.id === editTx.id
+                ? { ...t, type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] }
+                : t
+            )
+          });
+          setEditTx(null);
+        } else {
+          // 新增紀錄
+          const tx = { id: generateId(), type: form.type, amount: parseFloat(form.amount), accountId: form.accountId, category: form.category || "其他", note: form.note || "", date: form.date || new Date().toISOString().split("T")[0] };
+          save({ transactions: [...data.transactions, tx] });
+        }
         setModal(null); setForm({});
       };
 
@@ -294,7 +310,7 @@
               ))}
             </div>
 
-            {/* Overview (已加入點擊展開明細功能) */}
+            {/* Overview */}
             {tab === "overview" && (
               <div className="fade-in">
                 {data.accounts.map((acc) => {
@@ -353,7 +369,7 @@
                           ) : (
                             accTxs.map((tx) => (
                               <div key={tx.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #1a1a26" }}>
-                                <div>
+                                <div style={{ flex: 1 }}>
                                   <div style={{ fontSize: 13, color: "#e8e6f0", display: "flex", alignItems: "center", gap: 6 }}>
                                     {tx.note || tx.category}
                                     <span className="pill" style={{ fontSize: 10, padding: "2px 6px", background: tx.type === "income" ? "#4ade8011" : "#f8717111", color: tx.type === "income" ? "#4ade80" : "#f87171" }}>
@@ -362,8 +378,12 @@
                                   </div>
                                   <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>{tx.date}</div>
                                 </div>
-                                <div style={{ fontSize: 14, fontWeight: 600, color: tx.type === "income" ? "#4ade80" : "#f87171" }}>
-                                  {tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ fontSize: 14, fontWeight: 600, color: tx.type === "income" ? "#4ade80" : "#f87171" }}>
+                                    {tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}
+                                  </div>
+                                  <button onClick={() => { setEditTx(tx); setForm({ type: tx.type, amount: tx.amount, accountId: tx.accountId, category: tx.category, note: tx.note, date: tx.date }); setModal("addTx"); }} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 14, padding: "0 4px" }}>✎</button>
+                                  <button onClick={() => deleteTransaction(tx.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
                                 </div>
                               </div>
                             ))
@@ -380,7 +400,7 @@
             {tab === "transactions" && (
               <div className="fade-in">
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                  <button className="btn-primary" onClick={() => { setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+ 新增記錄</button>
+                  <button className="btn-primary" onClick={() => { setEditTx(null); setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+ 新增記錄</button>
                 </div>
                 {monthTxs.length === 0 ? (
                   <div className="card" style={{ padding: 32, textAlign: "center", color: "#555" }}>本月暫無記錄</div>
@@ -398,8 +418,11 @@
                             </div>
                             <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>{tx.date} · {acc?.name} · {tx.category}</div>
                           </div>
-                          <div style={{ fontWeight: 700, color: tx.type === "income" ? "#4ade80" : "#f87171", flexShrink: 0 }}>{tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}</div>
-                          <button onClick={() => deleteTransaction(tx.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                            <div style={{ fontWeight: 700, color: tx.type === "income" ? "#4ade80" : "#f87171", marginRight: 4 }}>{tx.type === "income" ? "+" : "-"}{formatCurrency(tx.amount)}</div>
+                            <button onClick={() => { setEditTx(tx); setForm({ type: tx.type, amount: tx.amount, accountId: tx.accountId, category: tx.category, note: tx.note, date: tx.date }); setModal("addTx"); }} style={{ background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 14, padding: "0 4px" }}>✎</button>
+                            <button onClick={() => deleteTransaction(tx.id)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 16, padding: "0 4px" }}>×</button>
+                          </div>
                         </div>
                       );
                     })}
@@ -460,14 +483,14 @@
           {/* FAB */}
           <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 20 }}>
             <button className="btn-primary fab" style={{ borderRadius: 50, width: 56, height: 56, fontSize: 24, padding: 0, boxShadow: "0 4px 24px #7c6fcd55" }}
-              onClick={() => { setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+</button>
+              onClick={() => { setEditTx(null); setForm({ type: "expense", date: new Date().toISOString().split("T")[0] }); setModal("addTx"); }}>+</button>
           </div>
 
-          {/* Modal: Add Transaction */}
+          {/* Modal: Add/Edit Transaction */}
           {modal === "addTx" && (
             <div className="overlay" onClick={(e) => e.target === e.currentTarget && setModal(null)}>
               <div className="modal fade-in">
-                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>新增記錄</div>
+                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 16 }}>{editTx ? "編輯記錄" : "新增記錄"}</div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                   {["expense","income"].map((t) => (
                     <button key={t} onClick={() => setForm((f) => ({ ...f, type: t }))}
@@ -490,8 +513,8 @@
                   <input className="input-field" type="date" value={form.date || ""} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => setModal(null)}>取消</button>
-                  <button className="btn-primary" style={{ flex: 2 }} onClick={addTransaction}>確認新增</button>
+                  <button className="btn-ghost" style={{ flex: 1 }} onClick={() => { setModal(null); setEditTx(null); }}>取消</button>
+                  <button className="btn-primary" style={{ flex: 2 }} onClick={addTransaction}>{editTx ? "儲存修改" : "確認新增"}</button>
                 </div>
               </div>
             </div>
@@ -590,10 +613,3 @@
   </script>
 </body>
 </html>
-    }
- 
-    ReactDOM.createRoot(document.getElementById("root")).render(<FinanceTracker />);
-  </script>
-</body>
-</html>
- 
